@@ -27,7 +27,6 @@ const ChartIcon = () => (
 );
 
 export default function LandingPage() {
-  // 👇 FIXED: Read from localStorage lazily during state setup instead of inside an effect
   const [user, setUser] = useState(() => {
     try {
       const storedUser = localStorage.getItem("user");
@@ -51,7 +50,7 @@ export default function LandingPage() {
     },
     {
       title: "AI Insights",
-      description: "Powered by OpenAI to give you smart, personalized saving suggestions.",
+      description: "Powered by Google Gemini AI to give you smart, personalized saving suggestions.", // 🎯 FIX: OpenAI -> Gemini
       icon: <SparklesIcon />
     },
     {
@@ -67,11 +66,12 @@ export default function LandingPage() {
       {/* 1. NAVIGATION BAR */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 no-underline select-none">
+          {/* 🎯 FIX: Changed route from "/" to "/home" to sync with routing logic */}
+          <Link to="/home" className="flex items-center gap-2 no-underline select-none">
             <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-sm">
-              SBA
+              SBL
             </div>
-            <span className="font-bold text-lg text-slate-900 tracking-tight">SmartBudget</span>
+            <span className="font-bold text-lg text-slate-900 tracking-tight">SmartSpending Lock</span>
           </Link>
           
           <div className="flex items-center gap-6 font-medium text-sm">
@@ -88,7 +88,7 @@ export default function LandingPage() {
             ) : (
               <>
                 <Link 
-                  to="/login" 
+                  to="/" // Hamara login page ab "/" route par hai, toh yeh perfect hai
                   className="text-slate-600 hover:text-blue-600 transition-colors no-underline"
                 >
                   Login
@@ -108,8 +108,9 @@ export default function LandingPage() {
       {/* 2. HERO SECTION */}
       <header id="home" className="bg-gradient-to-b from-blue-50 to-white py-20 px-4 border-b border-slate-200 text-center">
         <div className="max-w-3xl mx-auto">
+          {/* 🎯 FIX: OpenAI -> Google Gemini AI */}
           <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider inline-block">
-            MERN Stack + OpenAI Project
+            MERN Stack + Google Gemini AI Project
           </span>
           <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 mt-6 mb-4 leading-tight">
             Take Control of Your Finances with AI
@@ -130,7 +131,7 @@ export default function LandingPage() {
               className="bg-white border border-slate-300 text-slate-600 font-semibold px-6 py-3 rounded-md hover:bg-slate-50 transition-colors no-underline"
             >
               Learn More
-            </a>
+            </Link>
           </div>
         </div>
       </header>
@@ -168,11 +169,12 @@ export default function LandingPage() {
       <footer className="bg-slate-900 text-slate-400 py-8 px-4 border-t border-slate-800 mt-auto">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between text-sm gap-4">
           <div>
-            <p className="font-semibold text-white mb-0">Smart Budget Analyzer</p>
+            <p className="font-semibold text-white mb-0">Smart Spending Lock</p>
             <p className="text-xs text-slate-500 mt-1 mb-0">© {new Date().getFullYear()} College Capstone Project.</p>
           </div>
+          {/* 🎯 FIX: OpenAI -> Gemini */}
           <div className="text-xs text-slate-600 font-medium">
-            Built with: React • Node.js • MongoDB • Express • OpenAI
+            Built with: React • Node.js • MongoDB • Express • Google Gemini AI
           </div>
         </div>
       </footer>
