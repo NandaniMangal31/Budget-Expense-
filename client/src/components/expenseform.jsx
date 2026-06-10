@@ -74,7 +74,7 @@ const handleScreenshotUpload = async (e) => {
     try {
       const storedUser = localStorage.getItem("user");
       if (!storedUser) {
-        alert("Bhai, user session nahi mila! Ek baar re-login karo.");
+        alert("please re-login.");
         return;
       }
 

@@ -110,7 +110,7 @@ const refreshExpenses = async () => {
 
   // 🗑️ Budget Delete Request Control Pipeline (Optimized for instant UI removal)
   const handleDeleteExpense = async (expenseId) => {
-    if (!window.confirm("Bhai, kya aap sach me yeh expense log delete karna chahte ho?")) return;
+    if (!window.confirm("Are you sure,you wanna delete the expense.")) return;
 
     try {
       setDeletingId(expenseId);
