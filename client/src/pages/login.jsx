@@ -120,6 +120,7 @@ export default function LoginPage() {
                 value={formData.email}
                 onChange={handleChange}
                 placeholder="you@example.com"
+                pattern="^[a-zA-Z\s.-]{2,50}$"
                 required
                 disabled={loading}
                 className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:bg-slate-100 disabled:cursor-not-allowed text-slate-900"

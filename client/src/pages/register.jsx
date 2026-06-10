@@ -41,18 +41,26 @@ function Register() {
 
       alert("Registration Successful!");
       console.log(response.data);
-      navigate("/"); 
+      navigate("/"); // Successful hone ke baad login page par redirect
 
     } catch (error) {
-      console.error(error);
-      alert(
-        error.response?.data?.message ||
-        "Registration Failed"
-      );
+      console.error("Registration Error Trace:", error);
+      
+      // 🎯 FIXED ERROR HANDLING:
+      // Agar backend se koi specific message aaya hai (Jaise: "User already exists"), toh wahi alert mein dikhega.
+      const errorMessage = 
+        error.response?.data?.message || 
+        error.response?.data?.msg ||  // Kuch backends mein 'msg' key hoti hai
+        "User already exists or Registration Failed";
+
+      alert(errorMessage);
+      
     } finally {
       setLoading(false);
     }
   };
+
+
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans antialiased text-slate-800">
@@ -114,6 +122,8 @@ function Register() {
               placeholder="e.g., jane.doe@email.com"
               value={formData.email}
               onChange={handleChange}
+              pattern="^[a-zA-Z\s.-]{2,50}$"
+
               required
               className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-md box-border placeholder:text-slate-400 focus:outline-none focus:border-blue-600 focus:ring-3 focus:ring-blue-600/15 transition-all text-slate-900"
             />
