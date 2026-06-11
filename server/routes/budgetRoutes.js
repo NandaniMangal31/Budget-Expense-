@@ -1,6 +1,7 @@
 import express from "express"; 
-const router = express.Router();
 import Budget from "../models/Budget.js";
+const router = express.Router();
+
 
 router.post("/set", async (req, res) => {
   const { userId, totalBudget, categoryTargets } = req.body;
@@ -59,12 +60,15 @@ router.get("/:userId", async (req, res) => {
       });
     }
     
+    
     return res.status(200).json(userBudget);
   } catch (err) {
     console.error("Critical Exception in GET /api/budgets pipeline:", err);
     return res.status(500).json({ msg: "Internal Server Error fetching budget data profiles" });
   }
 });
-
+router.get("/:userId", async (req, res) => {
+        console.log("✅ Budget route hit:", req.params.userId);
+        });
 
 export default router;
