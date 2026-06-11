@@ -1,3 +1,5 @@
+console.log("🔥 NEW SERVER.JS DEPLOYED");
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -8,7 +10,6 @@ import expenseRoutes from "./routes/expenseRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 // 🚨 Variable renamed to 'budgetRoutes' for clean structural naming
 import budgetRoutes from "./routes/budgetRoutes.js";
-
 dotenv.config();
 connectDB();
 
