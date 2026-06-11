@@ -10,7 +10,7 @@ export const register = async (req, res) => {
     const { name, email, password } = req.body;
 
     // Name Validation
-    const namePattern = /^[a-zA-Z\s.-]{2,50}$/;
+    const namePattern = /^[a-zA-Z\s.\-]{2,50}$/;
 
     if (!namePattern.test(name)) {
       return res.status(400).json({
