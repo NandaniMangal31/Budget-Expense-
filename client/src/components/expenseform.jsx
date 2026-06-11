@@ -12,58 +12,52 @@ export default function ExpenseForm({ refresh }) {
   const [aiLoading, setAiLoading] = useState(false);
 
   // 📸 AUTOMATED SCREENSHOT PROCESSOR ENGINE
-const handleScreenshotUpload = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const handleScreenshotUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  setAiLoading(true);
-  const reader = new FileReader();
+    setAiLoading(true);
+    const reader = new FileReader();
 
-  reader.onloadend = async () => {
-    try {
-      // Safety Check: Agar reader crash ya blank ho
-      if (!reader.result) {
-        throw new Error("File formatting read error occurred internally.");
+    reader.onloadend = async () => {
+      try {
+        if (!reader.result) {
+          throw new Error("File formatting read error occurred internally.");
+        }
+
+        const base64String = reader.result.split(",")[1];
+        
+        if (!base64String) {
+          throw new Error("Failed to parse clean base64 data stream.");
+        }
+
+        console.log("Triggering network pipeline for mime:", file.type);
+
+        const res = await API.post("/expenses/scan", {
+          imageBuffer: base64String,
+          mimeType: file.type 
+        });
+
+        alert(res.data.msg || "AI successfully extracted log details! 🎉");
+
+        if (res.data.alert) {
+          alert(res.data.alert); 
+        }
+
+        if (refresh) refresh();
+
+      } catch (error) {
+        console.error("AI Upload Pipeline Execution Fault:", error);
+        alert(error.response?.data?.msg || error.message || "Failed to analyze screenshot image structure.");
+      } finally {
+        setAiLoading(false);
+        e.target.value = ""; 
       }
+    };
 
-      // Splitting metadata headers string from buffer binary stream
-      const base64String = reader.result.split(",")[1];
-      
-      if (!base64String) {
-        throw new Error("Failed to parse clean base64 data stream.");
-      }
-
-      console.log("Triggering network pipeline for mime:", file.type);
-
-      // Hitting the secure AI automation gateway route
-      const res = await API.post("/expenses/scan", {
-        imageBuffer: base64String,
-        mimeType: file.type // Pass exact string data (e.g. 'image/png')
-      });
-
-      // SweetAlert ya custom Toast notification lagao toh aur sundar lagega bhai!
-      alert(res.data.msg || "AI successfully extracted log details! 🎉");
-
-      // 🔔 BUDGET LIMIT TRIGGER: Display 50%, 80% or 100% notification warnings
-      if (res.data.alert) {
-        alert(res.data.alert); 
-      }
-
-      // Trigger parent panel refresh to re-evaluate dashboard charts
-      if (refresh) refresh();
-
-    } catch (error) {
-      console.error("AI Upload Pipeline Execution Fault:", error);
-      // Backend errors ko display karne ka best framework fallback
-      alert(error.response?.data?.msg || error.message || "Failed to analyze screenshot image structure.");
-    } finally {
-      setAiLoading(false);
-      e.target.value = ""; // Flushing selection slot memory to allow uploading same file again
-    }
+    reader.readAsDataURL(file);
   };
 
-  reader.readAsDataURL(file);
-};
   // STANDARD MANUAL EXECUTION METHOD
   const addExpense = async () => {
     if (!amount || !description) {
@@ -71,15 +65,26 @@ const handleScreenshotUpload = async (e) => {
       return;
     }
 
+    // 🎯 SMART FRONTEND VALIDATION LOCK
+    // Allows numbers, decimal points, spaces, ranges, and words like Lakh, Cr, Million, K, etc.
+    // Strictly blocks negative signs (- at start) and malicious symbols (+, *, $, @, etc.)
+    const flexibleAmountRegex = /^[0-9.]+(\s*(lakh|lk|crore|cr|m|k))?(\s*-\s*[0-9.]+(\s*(lakh|lk|crore|cr|m|k))?)?$/i;
+    
+    if (!flexibleAmountRegex.test(amount.trim())) {
+      alert("Invalid Amount Format! Use pure numbers or suffixes (e.g., 50000, 5 Lakh, 1.5 Cr, 2M) or safe ranges (e.g., 1 Lakh-2 Lakh).");
+      return;
+    }
+
     try {
       const storedUser = localStorage.getItem("user");
       if (!storedUser) {
-        alert("please re-login.");
+        alert("Please re-login.");
         return;
       }
 
+      // 🚀 CRITICAL FIX: Clean input string payload passed directly to match backend text structure
       await API.post("/expenses/add", {
-        amount: Number(amount), 
+        amount: amount.trim(), 
         description: description.trim(),
         category, 
         date      
@@ -97,6 +102,19 @@ const handleScreenshotUpload = async (e) => {
     } catch (error) {
       console.error("Form Submission Failure Error:", error);
       alert(error.response?.data?.msg || "Failed to log expense log.");
+    }
+  };
+
+  // AMOUNT KEYSTROKE FILTER: Input level filter to allow safe notation but block script injects/negatives
+  const handleAmountKeyDown = (e) => {
+    // Basic structural keys needed for navigation
+    const allowedKeys = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", " ", "-", "."];
+    
+    // Only numbers and letters (for lakh, cr, m, k shorthand) are valid character inputs
+    const isAlphaNumeric = /[a-zA-Z0-9]/.test(e.key);
+
+    if (!isAlphaNumeric && !allowedKeys.includes(e.key)) {
+      e.preventDefault(); // Script vectors and malicious codes blocked instantly!
     }
   };
 
@@ -121,7 +139,6 @@ const handleScreenshotUpload = async (e) => {
           Drop a screenshot of your payment checkout screen or transaction history. AI will read item lines step-by-step, categorize domains, and verify budget thresholds.
         </p>
 
-        {/* Dynamic Drag Drop Slot Interface */}
         <div className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-6 transition-all relative ${
           aiLoading ? "border-blue-400 bg-blue-50/50" : "border-slate-300 bg-slate-50 hover:bg-slate-100/80"
         }`}>
@@ -154,16 +171,17 @@ const handleScreenshotUpload = async (e) => {
 
         <form onSubmit={(e) => e.preventDefault()} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           
-          {/* Expense Amount Field */}
+          {/* Expense Amount Field (Supports custom financial shorthand configurations) */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-slate-600">Expense Amount (₹)</label>
             <input
-              type="number"
-              placeholder="e.g., 250"
+              type="text"
+              placeholder="e.g., 5 Lakh, 1.5 Cr, 25000, 1 Lakh-2 Lakh"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              required
+              onKeyDown={handleAmountKeyDown}
               className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-md text-slate-900 bg-white outline-none focus:border-blue-500 transition-colors box-border"
+              required
             />
           </div>
 
@@ -176,11 +194,12 @@ const handleScreenshotUpload = async (e) => {
               className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-md text-slate-900 bg-white outline-none cursor-pointer box-border"
             >
               <option value="Food">🍔 Food & Drinks</option>
-              <option value="Travel">🚌 Travel & Transport</option>
+              <option value="Travel & Transport">🚌 Travel & Transport</option>
               <option value="Shopping">🛍️ Shopping</option>
-              <option value="Bills">🧾 Bills & Rent</option>
+              <option value="Bills & Utilities"> 🧾 Bills & Utilities</option>
               <option value="Entertainment">🎬 Entertainment</option>
               <option value="Other">📦 Other</option>
+              <option value="Total Amount">💰 Direct Total (Lump-sum)</option>
             </select>
           </div>
 
