@@ -15,11 +15,11 @@ export default function BudgetForm({ userId, onBudgetUpdated }) {
         userId,
         totalBudget: totalBudget || "0",
         categoryTargets: {
-          Food: foodTarget || "0",
+          "Food & Drinks": foodTarget || "0",
           "Travel & Transport": travelTarget || "0",
-          Shopping: shoppingTarget || "0",
+          "Shopping": shoppingTarget || "0",
           "Bills & Utilities": billsTarget || "0",
-          Entertainment: entTarget || "0"
+          "Entertainment": entTarget || "0"
         }
       });
       alert("Custom budget rules locked successfully! 🏆");

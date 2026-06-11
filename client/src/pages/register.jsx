@@ -122,7 +122,6 @@ function Register() {
               placeholder="e.g., jane.doe@email.com"
               value={formData.email}
               onChange={handleChange}
-              pattern="^[a-zA-Z\s.-]{2,50}$"
 
               required
               className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-md box-border placeholder:text-slate-400 focus:outline-none focus:border-blue-600 focus:ring-3 focus:ring-blue-600/15 transition-all text-slate-900"

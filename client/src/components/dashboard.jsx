@@ -132,7 +132,7 @@ export default function Dashboard() {
       // 🎯 Pipeline 2: Fetch personalized targets allocation configurations
       try {
         // GET request is passed with /:userId matching the backend schema design perfectly
-        const resBudget = await API.get(`/budgets/${currentUserId}`);
+        const resBudget = await API.get(`/budgets/${userId}`);
         if (resBudget && resBudget.data) {
           setBudgetConfig(resBudget.data);
           
@@ -147,7 +147,7 @@ export default function Dashboard() {
           });
         }
       } catch (err) {
-        console.log("No custom limits mapped for this user profile yet. Dashboard working on zero-state matrix.");
+        console.error("No custom limits mapped for this user profile yet. Dashboard working on zero-state matrix.",err.message);
       }
 
     } catch (err) {
