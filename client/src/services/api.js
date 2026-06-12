@@ -1,7 +1,10 @@
 import axios from "axios";
 
+
 const API = axios.create({
-  baseURL: "https://smart-spending-backend.onrender.com/api",
+  baseURL: import.meta.env.VITE_API_URL === "production"
+    ? "https://smart-spending-backend.onrender.com/api"
+    : "http://localhost:5000/api",
   headers: {
     "Content-Type": "application/json",
   },

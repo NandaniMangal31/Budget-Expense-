@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const BudgetSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true },
+  userId: { type: String, ref: "User", required: true, unique: true },
   totalBudget: { type: String, default: "0" }, // e.g., "50000" or "5 Lakh"
   categoryTargets: {
     "Food & Drinks": { type: String, default: "0" },

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import API from "../services/api";
 
 export default function BudgetForm({ userId, onBudgetUpdated }) {
@@ -8,6 +8,7 @@ export default function BudgetForm({ userId, onBudgetUpdated }) {
   const [shoppingTarget, setShoppingTarget] = useState("");
   const [billsTarget, setBillsTarget] = useState("");
   const [entTarget, setEntTarget] = useState("");
+  const [otherTarget , setOtherTarget] = useState("");
 
   const handleSaveBudget = async () => {
     try {
@@ -19,7 +20,8 @@ export default function BudgetForm({ userId, onBudgetUpdated }) {
           "Travel & Transport": travelTarget || "0",
           "Shopping": shoppingTarget || "0",
           "Bills & Utilities": billsTarget || "0",
-          "Entertainment": entTarget || "0"
+          "Entertainment": entTarget || "0",   
+          "Other" : otherTarget || "0"
         }
       });
       alert("Custom budget rules locked successfully! 🏆");
@@ -58,6 +60,10 @@ export default function BudgetForm({ userId, onBudgetUpdated }) {
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-slate-600">🎬 Entertainment Target</label>
           <input type="text" placeholder="e.g., 4000" value={entTarget} onChange={(e)=>setEntTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-slate-600">📦 Other Target</label>
+          <input type="text" placeholder="e.g., 10000" value={otherTarget} onChange={(e)=>setOtherTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
         </div>
       </div>
       

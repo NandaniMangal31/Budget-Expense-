@@ -2,38 +2,6 @@ import express from "express";
 import Budget from "../models/Budget.js";
 const router = express.Router();
 
-
-router.post("/set", async (req, res) => {
-  const { userId, totalBudget, categoryTargets } = req.body;
-
-  // 🚨 PAYLOAD SANITIZATION: Bad request validation
-  if (!userId) {
-    return res.status(400).json({ msg: "Bad Request: Missing unique identification user reference token context" });
-  }
-
-  try {
-    // ⚡ UPSERT ALGORITHM: Agar record hai toh modify karo, nahi hai toh instantly create karo
-    const updatedBudget = await Budget.findOneAndUpdate(
-      { userId },
-      { 
-        totalBudget: totalBudget || "0", 
-        categoryTargets: categoryTargets || {} 
-      },
-      { new: true, upsert: true, runValidators: true } 
-    );
-
-    return res.status(200).json({ 
-      msg: "Budget milestones updated successfully! 🎯", 
-      budget: updatedBudget 
-    });
-  } catch (err) {
-    console.error("Critical Exception in POST /api/budgets/set configuration matrix:", err);
-    return res.status(500).json({ msg: "Failed to sync personalized target limit data profiles" });
-  }
-});
-
-
-
 router.get("/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -67,8 +35,34 @@ router.get("/:userId", async (req, res) => {
     return res.status(500).json({ msg: "Internal Server Error fetching budget data profiles" });
   }
 });
-router.get("/:userId", async (req, res) => {
-        console.log("✅ Budget route hit:", req.params.userId);
-        });
+
+router.post("/set", async (req, res) => {
+  const { userId, totalBudget, categoryTargets } = req.body;
+
+  // 🚨 PAYLOAD SANITIZATION: Bad request validation
+  if (!userId) {
+    return res.status(400).json({ msg: "Bad Request: Missing unique identification user reference token context" });
+  }
+
+  try {
+    // ⚡ UPSERT ALGORITHM: Agar record hai toh modify karo, nahi hai toh instantly create karo
+    const updatedBudget = await Budget.findOneAndUpdate(
+      { userId },
+      { 
+        totalBudget: totalBudget || "0", 
+        categoryTargets: categoryTargets || {} 
+      },
+      { new: true, upsert: true, runValidators: true } 
+    );
+
+    return res.status(200).json({ 
+      msg: "Budget milestones updated successfully! 🎯", 
+      budget: updatedBudget 
+    });
+  } catch (err) {
+    console.error("Critical Exception in POST /api/budgets/set configuration matrix:", err);
+    return res.status(500).json({ msg: "Failed to sync personalized target limit data profiles" });
+  }
+});
 
 export default router;
