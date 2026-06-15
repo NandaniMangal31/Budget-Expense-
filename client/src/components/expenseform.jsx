@@ -8,56 +8,6 @@ export default function ExpenseForm({ refresh }) {
   const [category, setCategory] = useState("Food");
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]); // Defaults to today's date
 
-  // 🤖 New System States for managing dynamic AI operations 
-  const [aiLoading, setAiLoading] = useState(false);
-
-  // 📸 AUTOMATED SCREENSHOT PROCESSOR ENGINE
-  const handleScreenshotUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setAiLoading(true);
-    const reader = new FileReader();
-
-    reader.onloadend = async () => {
-      try {
-        if (!reader.result) {
-          throw new Error("File formatting read error occurred internally.");
-        }
-
-        const base64String = reader.result.split(",")[1];
-        
-        if (!base64String) {
-          throw new Error("Failed to parse clean base64 data stream.");
-        }
-
-        console.log("Triggering network pipeline for mime:", file.type);
-
-        const res = await API.post("/expenses/scan", {
-          imageBuffer: base64String,
-          mimeType: file.type 
-        });
-
-        alert(res.data.msg || "AI successfully extracted log details! 🎉");
-
-        if (res.data.alert) {
-          alert(res.data.alert); 
-        }
-
-        if (refresh) refresh();
-
-      } catch (error) {
-        console.error("AI Upload Pipeline Execution Fault:", error);
-        alert(error.response?.data?.msg || error.message || "Failed to analyze screenshot image structure.");
-      } finally {
-        setAiLoading(false);
-        e.target.value = ""; 
-      }
-    };
-
-    reader.readAsDataURL(file);
-  };
-
   // STANDARD MANUAL EXECUTION METHOD
   const addExpense = async () => {
     if (!amount || !description) {
@@ -113,7 +63,7 @@ export default function ExpenseForm({ refresh }) {
     // Only numbers and letters (for lakh, cr, m, k shorthand) are valid character inputs
     const isAlphaNumeric = /[a-zA-Z0-9]/.test(e.key);
 
-    if (!isAlphaNumeric && !allowedKeys.includes(e.key)) {
+  	if (!isAlphaNumeric && !allowedKeys.includes(e.key)) {
       e.preventDefault(); // Script vectors and malicious codes blocked instantly!
     }
   };
@@ -127,39 +77,9 @@ export default function ExpenseForm({ refresh }) {
   };
 
   return (
-    <div className="max-w-2xl mx-auto mb-6 font-sans flex flex-col gap-6 box-border">
+    <div className="max-w-2xl mx-auto mb-6 font-sans flex flex-col gap-6 box-border W-full">
       
-      {/* SECTION 1: 🤖 TAILWIND AI AUTOMATION SCANNER MODULE */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xl">🤖</span>
-          <h3 className="text-lg font-bold text-slate-900 m-0">AI Instant Scanner Gateway</h3>
-        </div>
-        <p className="text-xs text-slate-500 m-0 mb-4 leading-relaxed">
-          Drop a screenshot of your payment checkout screen or transaction history. AI will read item lines step-by-step, categorize domains, and verify budget thresholds.
-        </p>
-
-        <div className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-6 transition-all relative ${
-          aiLoading ? "border-blue-400 bg-blue-50/50" : "border-slate-300 bg-slate-50 hover:bg-slate-100/80"
-        }`}>
-          <input 
-            type="file" 
-            accept="image/*"
-            disabled={aiLoading}
-            onChange={handleScreenshotUpload}
-            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer disabled:cursor-not-allowed"
-          />
-          <span className={`text-3xl mb-2 ${aiLoading ? "animate-pulse" : ""}`}>
-            {aiLoading ? "⏳" : "📸"}
-          </span>
-          <p className="text-sm font-semibold text-slate-700 m-0">
-            {aiLoading ? "AI analyzing transaction blocks and checking budget..." : "Upload Bill or Receipt Screenshot"}
-          </p>
-          <span className="text-xs text-slate-400 mt-1">Accepts PNG, JPG or JPEG logs</span>
-        </div>
-      </div>
-
-      {/* SECTION 2: 💸 TRADITIONAL MANUAL ENTRY FORM MODULE */}
+      {/* 💸 TRADITIONAL MANUAL ENTRY FORM MODULE ONLY */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xl">✍️</span>

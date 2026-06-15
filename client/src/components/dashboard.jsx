@@ -8,17 +8,16 @@ import BudgetModal from "./BudgetModal";
 import MetricCards from "./MetricCards";
 import CategoryAnalysis from "./CategoryAnalysis";
 import ExpenseLogsTable from "./ExpenseLogsTable";
-// 👇 IMPORT NEW COMPONENT HERE
 import ProfileModal from "./ProfileModal"; 
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const [expenses, setExpenses] = useState([]);
+  const [uploading, setUploading] = useState(false); // Universal scanner loader state
   
-  // 🎯 BUDGET ENGINE STATES
+  // BUDGET ENGINE STATES
   const [budgetConfig, setBudgetConfig] = useState({ totalBudget: "0", categoryTargets: {} });
   const [isBudgetFormOpen, setIsBudgetFormOpen] = useState(false);
-  // 👇 ADD NEW CONTROL MODAL STATE
   const [isProfileOpen, setIsProfileOpen] = useState(false); 
   
   const [targetInputs, setTargetInputs] = useState({
@@ -132,6 +131,35 @@ export default function Dashboard() {
     } catch (err) { console.log(err); }
   };
 
+  // 🔮 UNIVERSAL HANDLER FOR ALL EXTENSIONS
+  const handleUniversalFileScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setUploading(true);
+    try {
+      const res = await API.post("/expenses/scan", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+
+      if (res.data && res.data.success) {
+        alert(res.data.message || "Document processed and categorized successfully! 🚀");
+        refreshExpenses(); // Live state sync
+      } else {
+        alert("Document processed safely!");
+        refreshExpenses();
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.message || "File parsing structural validation failed.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSaveBudgetConfig = async () => {
     if (!userId) return;
     try {
@@ -181,11 +209,11 @@ export default function Dashboard() {
 
   const getCategoryStyles = (categoryName) => {
     const normalized = (categoryName || "").toLowerCase().trim();
-    if (normalized.includes("food")) return { dot: "bg-blue-500", text: "text-blue-600", bg: "bg-blue-50 border-blue-100" };
-    if (normalized.includes("travel") || normalized.includes("transport")) return { dot: "bg-emerald-500", text: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" };
+    if (normalized.includes("food & drinks")) return { dot: "bg-blue-500", text: "text-blue-600", bg: "bg-blue-50 border-blue-100" };
+    if (normalized.includes("travel transport") || normalized.includes("transport")) return { dot: "bg-emerald-500", text: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" };
     if (normalized.includes("shopping")) return { dot: "bg-purple-500", text: "text-purple-600", bg: "bg-purple-50 border-purple-100" };
     if (normalized.includes("bill") || normalized.includes("utility")) return { dot: "bg-amber-500", text: "text-amber-600", bg: "bg-amber-50 border-amber-100" };
-    if (normalized.includes("entertainment")) return { dot: "bg-red-500", text: "text-red-600", bg: "bg-red-50 border-red-100" };
+    if (normalized.includes("entertainment")) return { dot: "bg-teal-700", text: "text-teal-800", bg: "bg-teal-70 border-teal-100" };
     if (normalized.includes("other")) return { dot: "bg-pink-500", text: "text-pink-600", bg: "bg-pink-50 border-pink-100" };
     return { dot: "bg-green-500", text: "text-green-600", bg: "bg-green-50 border-green-100" };
   };
@@ -193,29 +221,28 @@ export default function Dashboard() {
   const displayExpenses = expenses.length > 0 ? [...expenses].reverse() : [];
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-600 font-sans flex flex-col antialiased">
+    <div className="min-h-screen bg-slate-50 text-slate-600 font-sans flex flex-col antialiased overflow-x-hidden w-full">
       {/* NAVBAR */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs w-full">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5 cursor-pointer select-none" onClick={() => navigate("/")}>
             <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-sm">SBA</div>
             <span className="font-bold text-lg text-slate-900 tracking-tight">SmartBudget</span>
           </div>
-          <div className="flex items-center gap-5">
-            {/* 👇 UPDATED BUTTON EVENT HERE */}
+          <div className="flex items-center gap-3 sm:gap-5">
             <button 
               onClick={() => setIsProfileOpen(true)} 
-              className="text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors"
+              className="text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors whitespace-nowrap"
             >
-              👤 Personal Account
+              👤 <span className="hidden sm:inline">Personal Account</span>
             </button>
-            <button onClick={() => { localStorage.clear(); navigate("/"); }} className="text-sm font-semibold text-red-600 hover:text-red-800 bg-none border-none cursor-pointer transition-colors">Sign Out</button>
+            <button onClick={() => { localStorage.clear(); navigate("/"); }} className="text-sm font-semibold text-red-600 hover:text-red-800 bg-none border-none cursor-pointer transition-colors whitespace-nowrap">Sign Out</button>
           </div>
         </div>
       </nav>
 
-      {/* MAIN LAYOUT CONTAINER */}
-      <main className="max-w-6xl mx-auto w-full px-4 py-6 flex flex-col gap-6 flex-grow box-border">
+      {/* MAIN LAYOUT CONTAINER - SCALABLE & CONSTRAINED */}
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6 flex-grow box-border">
         
         {/* BANNER */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap justify-between items-center gap-4">
@@ -223,7 +250,7 @@ export default function Dashboard() {
             <h1 className="text-xl md:text-2xl font-bold text-slate-900 m-0">Welcome Back, {userMetadata.name}!</h1>
             <p className="text-sm text-slate-400 mt-1 m-0">Manage your self-assigned budget allocations and live data trends.</p>
           </div>
-          <button onClick={() => setIsBudgetFormOpen(!isBudgetFormOpen)} className="text-xs font-bold bg-slate-900 text-white px-4 py-2.5 rounded-lg border-none hover:bg-slate-800 transition-all shadow-xs cursor-pointer flex items-center gap-1.5">
+          <button onClick={() => setIsBudgetFormOpen(!isBudgetFormOpen)} className="text-xs font-bold bg-slate-900 text-white px-4 py-2.5 rounded-lg border-none hover:bg-slate-800 transition-all shadow-xs cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
             🎯 {isBudgetFormOpen ? "Close Control Panel" : "Setup Manual Budgets"}
           </button>
         </div>
@@ -234,21 +261,52 @@ export default function Dashboard() {
         {/* MODAL MODULAR PANEL */}
         <BudgetModal isOpen={isBudgetFormOpen} targetInputs={targetInputs} setTargetInputs={setTargetInputs} onSave={handleSaveBudgetConfig} onClose={() => setIsBudgetFormOpen(false)} />
 
-        {/* TRANSACTION INPUT ENGINES */}
+        {/* 🔮 ONLY ONE SINGLE UNIVERSAL SCANNER BLOCK */}
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
+          <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors group w-full box-border text-center">
+            <div className="flex items-center gap-3 text-2xl">
+              <span>📸</span>
+              <span className="text-slate-300">|</span>
+              <span>📄</span>
+              <span className="text-slate-300">|</span>
+              <span>📊</span>
+            </div>
+            <div>
+              <span className="block text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                {uploading ? "Analyzing File & Auto-Categorizing..." : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
+              </span>
+              <span className="block text-xs text-slate-400 mt-1">
+                Accepts Image (JPG, PNG), PDF, Excel (.xlsx, .csv) statements
+              </span>
+            </div>
+            <input 
+              type="file" 
+              accept="image/*, .pdf, .xlsx, .xls, .csv" 
+              onChange={handleUniversalFileScan} 
+              className="hidden" 
+              disabled={uploading}
+            />
+          </label>
+        </div>
+
+        {/* TRADITIONAL MANUAL EXPENSE LOG FORM */}
         <ExpenseForm refresh={refreshExpenses} />
 
         {/* TOP CARDS ROW */}
         <MetricCards totalBudget={budgetConfig.totalBudget || "0"} totalExpenses={totalExpenses} remainingBudget={remainingBudget} parsedMonthlyBudget={parsedMonthlyBudget} formatAdvancedAmount={formatAdvancedAmount} />
 
         {/* SPLIT ANALYTICS MATRIX GRID */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          <CategoryAnalysis expenses={expenses} categoryTotals={categoryTotals} totalExpenses={totalExpenses} budgetConfig={budgetConfig} parseSafeAmount={parseSafeAmount} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} />
-          
-          <ExpenseLogsTable displayExpenses={displayExpenses} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} onDeleteExpense={handleDeleteExpense} deletingId={deletingId} />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start w-full">
+          <div className="lg:col-span-2 w-full">
+            <CategoryAnalysis expenses={expenses} categoryTotals={categoryTotals} totalExpenses={totalExpenses} budgetConfig={budgetConfig} parseSafeAmount={parseSafeAmount} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} />
+          </div>
+          <div className="w-full">
+            <ExpenseLogsTable displayExpenses={displayExpenses} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} onDeleteExpense={handleDeleteExpense} deletingId={deletingId} />
+          </div>
         </div>
       </main>
 
-      <footer className="text-center p-5 text-xs text-slate-400 border-t border-slate-200 bg-white mt-auto">
+      <footer className="text-center p-5 text-xs text-slate-400 border-t border-slate-200 bg-white mt-auto w-full">
         &copy; {new Date().getFullYear()} Smart Budget Analyzer. Academic Capstone Project.
       </footer>
     </div>
