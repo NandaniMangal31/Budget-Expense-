@@ -123,9 +123,8 @@ export default function Dashboard() {
 
   useEffect(() => 
     { 
-      localStorage.clear();
-      navigate("/",{replace:true});
-      fetchDashboardData(); }, [fetchDashboardData]);
+      fetchDashboardData();
+       }, [fetchDashboardData]);
 
   const refreshExpenses = async () => {
     if (!userId) return;
