@@ -43,47 +43,87 @@ export default function Dashboard() {
   const [deletingId, setDeletingId] = useState(null);
 
   // ==========================================
-  // ⚡ UTILITY PARSING SYSTEMS
+  // ⚡ AUTOMATED HYBRID PARSING ENGINE
   // ==========================================
   const parseSafeAmount = (amountVal) => {
-    if (!amountVal) return 0;
+    if (amountVal === undefined || amountVal === null) return 0;
+    
+    // Clean string notation variables
     let str = amountVal.toString().toLowerCase().replace(/,/g, "").trim();
     if (str.includes("-")) str = str.split("-")[0].trim();
 
     let multiplier = 1;
+
+    // Supports both Indian and International System Fallback Reverse Calculations
     if (str.includes("lakh") || str.includes("lk")) multiplier = 100000;
     else if (str.includes("crore") || str.includes("cr")) multiplier = 10000000;
-    else if (str.includes("m")) multiplier = 1000000;
+    else if (str.includes("qi")) multiplier = 1e18;
+    else if (str.includes("qa")) multiplier = 1e15;
+    else if (str.includes("t")) multiplier = 1e12;
+    else if (str.includes("b")) multiplier = 1e9;
+    else if (str.includes("m")) multiplier = 1e6;
     else if (str.includes("k")) multiplier = 1000;
 
-    str = str.replace(/lakh|lk|crore|cr|m|k/g, "");
+    // Pure cleanup of absolute float
+    str = str.replace(/lakh|lk|crore|cr|qi|qa|t|b|m|k/g, "").trim();
     const val = parseFloat(str);
     return isNaN(val) ? 0 : val * multiplier;
   };
 
-  const formatAdvancedAmount = (amountVal, isDollar = false) => {
-    if (amountVal === undefined || amountVal === null || amountVal === "") return isDollar ? "$0" : "₹0";
-    const str = amountVal.toString().trim();
-    if (str.includes("-")) {
-      const parts = str.split("-");
-      return `${formatSingleAdvanced(parts[0], isDollar)}-${formatSingleAdvanced(parts[1], isDollar)}`;
+  // ==========================================
+  // 🎯 THE THREE-IN-ONE HYBRID FORMATTING ENGINE
+  // ==========================================
+  const formatAdvancedAmount = (amount) => {
+    const num = Number(amount);
+    if (isNaN(num)) return "₹0.00";
+
+    const absNum = Math.abs(num);
+    const sign = num < 0 ? "-" : "";
+
+    // 🚨 Safe Infinity Buffer Shield
+    if (!isFinite(num)) return `${sign}₹Infinite`;
+
+    // 🌍 SYSTEM 1: INTERNATIONAL DECIMAL SYSTEM (For Ultra Massive Edge Numbers)
+    const internationalTiers = [
+      { value: 1e18, symbol: "Qi" }, // Quintillion
+      { value: 1e15, symbol: "Qa" }, // Quadrillion
+      { value: 1e12, symbol: "T" },  // Trillion
+      { value: 1e9,  symbol: "B" }   // Billion
+    ];
+
+    for (let i = 0; i < internationalTiers.length; i++) {
+      if (absNum >= internationalTiers[i].value) {
+        const formatted = (absNum / internationalTiers[i].value).toFixed(2);
+        return `${sign}₹${formatted} ${internationalTiers[i].symbol}`;
+      }
     }
-    return formatSingleAdvanced(str, isDollar);
+
+    // 🇮🇳 SYSTEM 2: INDIAN SYSTEM SHORT NOTATION (For Local Corporate Financial Scales)
+    if (absNum >= 1e7) {
+      return `${sign}₹${(absNum / 1e7).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
+    }
+    if (absNum >= 1e5) {
+      return `${sign}₹${(absNum / 1e5).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Lakh`;
+    }
+
+    // 🔢 SYSTEM 3: STANDARD LEDGER VIEW (For Regular Day-to-Day Expenses)
+    return `${sign}₹${absNum.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
   };
 
+  // Unified backward mapping logic
   const formatSingleAdvanced = (numStr, isDollar) => {
-    const num = parseSafeAmount(numStr);
-    if (num === 0 && isNaN(Number(numStr))) return numStr;
     if (isDollar) {
-      if (num >= 1000000000) return `$${(num / 1000000000).toFixed(2)}B`;
-      if (num >= 1000000) return `$${(num / 1000000).toFixed(2)}M`;
-      if (num >= 1000) return `$${(num / 1000).toFixed(1)}K`;
+      const num = parseSafeAmount(numStr);
+      if (num === 0 && isNaN(Number(numStr))) return numStr;
+      if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+      if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+      if (num >= 1e3) return `$${(num / 1e3).toFixed(1)}K`;
       return `$${Math.round(num)}`;
-    } else {
-      if (num >= 10000000) return `₹${(num / 10000000).toFixed(2)} Cr`;
-      if (num >= 100000) return `₹${(num / 100000).toFixed(2)} Lakh`;
-      return `₹${num.toLocaleString("en-IN")}`;
     }
+    return formatAdvancedAmount(parseSafeAmount(numStr));
   };
 
   // ==========================================
@@ -121,10 +161,9 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => 
-    { 
-      fetchDashboardData();
-       }, [fetchDashboardData]);
+  useEffect(() => { 
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const refreshExpenses = async () => {
     if (!userId) return;
@@ -134,7 +173,6 @@ export default function Dashboard() {
     } catch (err) { console.log(err); }
   };
 
-  // 🔮 UNIVERSAL HANDLER FOR ALL EXTENSIONS
   const handleUniversalFileScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -150,7 +188,7 @@ export default function Dashboard() {
 
       if (res.data && res.data.success) {
         alert(res.data.message || "Document processed and categorized successfully! 🚀");
-        refreshExpenses(); // Live state sync
+        refreshExpenses();
       } else {
         alert("Document processed safely!");
         refreshExpenses();
@@ -197,20 +235,16 @@ export default function Dashboard() {
   };
 
   // ==========================================
-  // 📊 CALCULATED IN-MEMORY STRUCTS
+  // 📊 CALCULATED IN-MEMORY STRUCTS (RE-POWERED)
   // ==========================================
   const parsedMonthlyBudget = parseSafeAmount(budgetConfig.totalBudget);
   const totalExpenses = expenses.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0);
   const remainingBudget = parsedMonthlyBudget - totalExpenses;
 
-  // ==========================================
-  // 📊 CALCULATED IN-MEMORY STRUCTS (AUTO-MERGED)
-  // ==========================================
   const categoryTotals = expenses.reduce((acc, curr) => {
     let cat = curr.category || "Other";
     let normalizedCat = cat.trim();
 
-    // Forcefully merge old shorthand database values into strict UI dropdown names
     if (/^bills$/i.test(normalizedCat)) {
       normalizedCat = "Bills & Utilities";
     } else if (/^travel$/i.test(normalizedCat)) {
@@ -229,7 +263,7 @@ export default function Dashboard() {
     if (normalized.includes("travel transport") || normalized.includes("transport")) return { dot: "bg-emerald-500", text: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" };
     if (normalized.includes("shopping")) return { dot: "bg-purple-500", text: "text-purple-600", bg: "bg-purple-50 border-purple-100" };
     if (normalized.includes("bill") || normalized.includes("utility")) return { dot: "bg-amber-500", text: "text-amber-600", bg: "bg-amber-50 border-amber-100" };
-    if (normalized.includes("entertainment")) return { dot: "bg-teal-700", text: "text-teal-800", bg: "bg-teal-70 border-teal-100" };
+    if (normalized.includes("entertainment")) return { dot: "bg-teal-700", text: "text-teal-800", bg: "bg-teal-50 border-teal-100" };
     if (normalized.includes("other")) return { dot: "bg-pink-500", text: "text-pink-600", bg: "bg-pink-50 border-pink-100" };
     return { dot: "bg-green-500", text: "text-green-600", bg: "bg-green-50 border-green-100" };
   };
@@ -257,7 +291,7 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* MAIN LAYOUT CONTAINER - SCALABLE & CONSTRAINED */}
+      {/* MAIN LAYOUT CONTAINER */}
       <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6 flex-grow box-border">
         
         {/* BANNER */}
@@ -271,47 +305,33 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* PROFILE MODAL INJECTION */}
+        {/* MODAL WINDOW COMPONENTS */}
         <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} userMetadata={userMetadata} />
-
-        {/* MODAL MODULAR PANEL */}
         <BudgetModal isOpen={isBudgetFormOpen} targetInputs={targetInputs} setTargetInputs={setTargetInputs} onSave={handleSaveBudgetConfig} onClose={() => setIsBudgetFormOpen(false)} />
 
-        {/* 🔮 ONLY ONE SINGLE UNIVERSAL SCANNER BLOCK */}
+        {/* AI SMART SCANNER */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
           <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors group w-full box-border text-center">
             <div className="flex items-center gap-3 text-2xl">
-              <span>📸</span>
-              <span className="text-slate-300">|</span>
-              <span>📄</span>
-              <span className="text-slate-300">|</span>
-              <span>📊</span>
+              <span>📸</span> <span className="text-slate-300">|</span> <span>📄</span> <span className="text-slate-300">|</span> <span>📊</span>
             </div>
             <div>
               <span className="block text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
                 {uploading ? "Analyzing File & Auto-Categorizing..." : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
               </span>
-              <span className="block text-xs text-slate-400 mt-1">
-                Accepts Image (JPG, PNG), PDF, Excel (.xlsx, .csv) statements
-              </span>
+              <span className="block text-xs text-slate-400 mt-1">Accepts Image (JPG, PNG), PDF, Excel (.xlsx, .csv) statements</span>
             </div>
-            <input 
-              type="file" 
-              accept="image/*, .pdf, .xlsx, .xls, .csv" 
-              onChange={handleUniversalFileScan} 
-              className="hidden" 
-              disabled={uploading}
-            />
+            <input type="file" accept="image/*, .pdf, .xlsx, .xls, .csv" onChange={handleUniversalFileScan} className="hidden" disabled={uploading} />
           </label>
         </div>
 
-        {/* TRADITIONAL MANUAL EXPENSE LOG FORM */}
+        {/* MANUAL EXPENSE FORM */}
         <ExpenseForm refresh={refreshExpenses} />
 
-        {/* TOP CARDS ROW */}
+        {/* METRIC CARDS ROW */}
         <MetricCards totalBudget={budgetConfig.totalBudget || "0"} totalExpenses={totalExpenses} remainingBudget={remainingBudget} parsedMonthlyBudget={parsedMonthlyBudget} formatAdvancedAmount={formatAdvancedAmount} />
 
-        {/* SPLIT ANALYTICS MATRIX GRID */}
+        {/* COMPACT STABLE MATRIX TRACKER */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start w-full">
           <div className="lg:col-span-2 w-full">
             <CategoryAnalysis expenses={expenses} categoryTotals={categoryTotals} totalExpenses={totalExpenses} budgetConfig={budgetConfig} parseSafeAmount={parseSafeAmount} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} />

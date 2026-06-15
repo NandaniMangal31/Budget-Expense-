@@ -1,3 +1,4 @@
+import React from "react";
 
 export default function ExpenseLogsTable({ 
   displayExpenses, 
@@ -16,7 +17,7 @@ export default function ExpenseLogsTable({
             <h3 className="text-sm font-black text-slate-900 m-0 tracking-tight">Recent Expenses Logs</h3>
             <p className="text-[11px] font-medium text-slate-400 m-0 mt-0.5">Real-time entries stream from database</p>
           </div>
-          <span className="bg-slate-100 text-slate-600 font-bold text-[10px] px-2 py-1 rounded-md">
+          <span className="bg-slate-100 text-slate-600 font-bold text-[10px] px-2 py-1 rounded-md shrink-0">
             {displayExpenses?.length || 0} Logs
           </span>
         </div>
@@ -24,27 +25,24 @@ export default function ExpenseLogsTable({
 
       {/* STABLE DATA TABLE STRUCTURE */}
       <div className="flex-grow overflow-y-auto overflow-x-auto w-full custom-scrollbar bg-slate-50/30">
-        <table className="w-full border-collapse text-left table-fixed">
-          {/* STRICT LAYOUT COLUMNS RATIO */}
+        <table className="w-full border-collapse text-left table-fixed min-w-[300px]">
+          {/* STRICT MATHEMATICAL GRID RATIOS */}
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 sticky top-0 z-10 select-none">
-              <th className="w-[45%] text-[10px] font-black text-slate-400 tracking-wider py-3 px-4 uppercase">Description</th>
+              <th className="w-[40%] text-[10px] font-black text-slate-400 tracking-wider py-3 px-4 uppercase">Description</th>
               <th className="w-[30%] text-[10px] font-black text-slate-400 tracking-wider py-3 px-2 uppercase">Category</th>
-              <th className="w-[25%] text-[10px] font-black text-slate-400 tracking-wider py-3 px-4 text-right uppercase">Amount</th>
+              <th className="w-[30%] text-[10px] font-black text-slate-400 tracking-wider py-3 px-4 text-right uppercase">Amount</th>
             </tr>
           </thead>
           
           <tbody className="divide-y divide-slate-100 bg-white">
             {displayExpenses && displayExpenses.length > 0 ? (
               displayExpenses.map((item) => {
-                
-                // 🎯 YOUR EXACT RE-INSTALLED CATEGORY NORMALIZATION LOGIC
                 let displayCategory = item.category || "Other";
                 if (displayCategory.toLowerCase().trim() === "food") {
                   displayCategory = "Food & Drinks";
                 }
 
-                // 🎯 MATCHING YOUR PREVIOUS EXACT COLOR EXTRACTOR ENGINE
                 const colors = getCategoryStyles(displayCategory) || { 
                   bg: "bg-slate-100", 
                   text: "text-slate-700" 
@@ -53,11 +51,11 @@ export default function ExpenseLogsTable({
                 return (
                   <tr key={item._id} className="hover:bg-slate-50/80 transition-colors group">
                     
-                    {/* DESCRIPTION CELL WITH SMART WRAPPING */}
+                    {/* DESCRIPTION CELL (SHIELDED TO PREVENT TEXT OVERFLOW) */}
                     <td className="py-3.5 px-4 align-middle">
-                      <div className="flex flex-col min-w-0">
+                      <div className="flex flex-col min-w-0 max-w-full">
                         <span 
-                          className="text-xs font-bold text-slate-800 truncate" 
+                          className="text-xs font-bold text-slate-800 truncate block" 
                           title={item.description}
                         >
                           {item.description || "Untitled Transaction"}
@@ -68,23 +66,28 @@ export default function ExpenseLogsTable({
                       </div>
                     </td>
 
-                    {/* 🎯 CATEGORY METADATA TAG (YOUR EXACT ROUNDED-FULL CAPSULE STYLE) */}
+                    {/* CATEGORY TAG CONTAINER */}
                     <td className="py-3.5 px-2 align-middle">
-                      <span className={`inline-block text-[11px] font-bold px-2.5 py-0.5 border rounded-full tracking-wide truncate max-w-full ${colors.bg} ${colors.text}`}>
-                        {displayCategory}
-                      </span>
+                      <div className="max-w-full truncate">
+                        <span className={`inline-block text-[11px] font-bold px-2.5 py-0.5 border rounded-full tracking-wide truncate max-w-full ${colors.bg} ${colors.text}`}>
+                          {displayCategory}
+                        </span>
+                      </div>
                     </td>
 
-                    {/* AMOUNT & FLOATING DELETE ACTION BLOCK */}
-                    <td className="py-3.5 px-4 text-right align-middle relative">
-                      <div className="flex items-center justify-end gap-2 group-hover:translate-x-[-24px] transition-transform duration-200">
-                        <span className="text-xs font-black text-slate-900 tracking-tight">
+                    {/* 🎯 AMOUNT BLOCK (SHIELDED WITH ANTIOVERFLOW PROPERTIES) */}
+                    <td className="py-3.5 px-4 text-right align-middle relative whitespace-nowrap min-w-[100px]">
+                      <div className="flex items-center justify-end gap-2 group-hover:translate-x-[-28px] transition-transform duration-200 min-w-0 w-full">
+                        <span 
+                          className="text-xs font-black text-slate-900 tracking-tight truncate block max-w-full"
+                          title={item.amount ? Number(item.amount).toLocaleString("en-IN") : ""}
+                        >
                           {formatAdvancedAmount ? formatAdvancedAmount(item.amount) : `₹${item.amount}`}
                         </span>
                       </div>
 
-                      {/* HOVER SLIDE DELETE ENGINE */}
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 z-20">
+                      {/* 🎯 HOVER SLIDE DELETE ENGINE WITH CLICK PROTECTION SHIELD */}
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 z-20 pointer-events-none group-hover:pointer-events-auto">
                         <button
                           onClick={() => onDeleteExpense(item._id)}
                           disabled={deletingId === item._id}
