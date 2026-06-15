@@ -1,4 +1,5 @@
 import express from "express";
+import { checkBudgetThresholds } from "../utils/budgetAlertEngine.js";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { addExpense, getExpenses, scanReceiptAndProcess } from "../controllers/expenseController.js"; 
@@ -241,6 +242,9 @@ router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) 
     }));
 
     const savedTransactions = await Expense.insertMany(bulkPayload);
+    savedTransactions.forEach((tx) => {
+      checkBudgetThresholds(userId, tx.category, tx.amount);
+    });
     return res.status(201).json({
       success: true,
       message: `Successfully processed file layout! Imported ${savedTransactions.length} expenses. 🎉`,

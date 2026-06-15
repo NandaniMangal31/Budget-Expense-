@@ -2,6 +2,7 @@ import axios from "axios";
 import { GoogleGenerativeAI } from "@google/generative-ai"; // 🎯 FIX 1: Missing SDK import restoration
 import mongoose from "mongoose"; 
 import Expense from "../models/Expense.js";
+import { checkBudgetThresholds } from "../utils/budgetAlertEngine.js";
 
 // 🧱 SECURE KEY RESOLUTION LAYER
 const getGeminiKey = () => {
@@ -332,7 +333,8 @@ CRITICAL RULES:
     }
 
     // Save all grouped transactions into MongoDB
-    const savedExpenses = [];
+  const savedExpenses = [];
+    
     for (const transaction of extractedPayload.transactions) {
       // Validate each transaction
       const finalAmount = Number(transaction.amount);
@@ -354,9 +356,14 @@ CRITICAL RULES:
         category: transaction.category,
         date: new Date()
       });
+
+      // 1. Save data strictly in database
       const saved = await automatedExpense.save();
       savedExpenses.push(saved);
       console.log(`✅ Saved ${transaction.category} expense: ₹${finalAmount}`);
+
+      // 2. 🔥 FIXED: Safely check thresholds using the correct 'saved' variable with await
+      await checkBudgetThresholds(userId, saved.category, saved.amount);
     }
 
     if (savedExpenses.length === 0) {

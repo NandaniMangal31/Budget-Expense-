@@ -67,72 +67,101 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-700 font-sans flex flex-col antialiased">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center font-sans p-4 antialiased">
       
-      {/* 1. TOP HEADER NAVIGATION */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 no-underline select-none">
-            <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-sm">
-              SBA
-            </div>
-            <span className="font-bold text-lg text-slate-900 tracking-tight">SmartBudget</span>
-          </Link>
-          <Link 
-            to="/" 
-            className="text-sm font-medium text-slate-500 hover:text-blue-600 transition-colors no-underline"
-          >
-          </Link>
+      {/* 🌐 TOP BRAND LOGO BLOCK */}
+      <div className="flex items-center gap-2 mb-6 select-none animate-fade-in">
+        <div className="bg-blue-600 text-white font-black text-xs px-2.5 py-1.5 rounded-lg shadow-sm tracking-wider">
+          SBA
         </div>
-      </header>
+        <span className="text-slate-900 font-bold text-lg tracking-tight">
+          SmartBudget
+        </span>
+      </div>
 
-      {/* 2. CENTERED LOGIN CARD */}
-      <main className="flex items-center justify-center px-4 py-12">
-        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-sm max-w-md w-full">
+      {/* 🎴 DUAL PANEL CONTAINER */}
+      <div className="w-full max-w-4xl bg-white rounded-3xl shadow-xl border border-slate-200 flex overflow-hidden min-h-[540px]">
+        
+        {/* 🧠 LEFT PANEL: AI BRANDING FEATURE LAYER */}
+        <div className="hidden md:flex md:w-1/2 bg-gradient-to-br from-slate-950 via-slate-900 to-blue-950 p-10 flex-col justify-between relative overflow-hidden select-none">
           
-          {/* Card Header */}
-          <div className="text-center mb-6">
-            <h2 className="text-2xl font-bold text-slate-900 mb-1">Welcome Back</h2>
-            <p className="text-sm text-slate-500">
+          {/* Decorative Grid Background */}
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20"></div>
+
+          {/* Central AI Dashboard Core Visual Art */}
+          <div className="relative my-auto flex flex-col items-center">
+            <div className="w-48 h-48 bg-gradient-to-tr from-blue-500/20 to-cyan-400/20 rounded-full flex items-center justify-center border border-blue-500/30 backdrop-blur-md relative shadow-2xl shadow-blue-500/10">
+              
+              {/* Inner glowing core node */}
+              <div className="w-24 h-24 bg-gradient-to-br from-blue-600 to-cyan-500 rounded-full flex items-center justify-center text-white shadow-xl animate-pulse">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.8} stroke="currentColor" className="w-10 h-10">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 21L14.907 14M14.09 8.11L15 3L9.093 10M19 10.5h-4.5M9.5 13.5H5" />
+                </svg>
+              </div>
+
+              {/* Floating Orbiting Metric Nodes */}
+              <span className="absolute top-3 text-emerald-400 font-bold text-sm bg-slate-900/80 px-2.5 py-0.5 rounded-full border border-emerald-500/30">₹</span>
+              <span className="absolute bottom-6 left-2 text-cyan-400 font-bold text-xs bg-slate-900/80 p-2 rounded-full border border-cyan-500/30">📊</span>
+              <span className="absolute right-3 top-12 text-amber-400 font-bold text-xs bg-slate-900/80 p-2 rounded-full border border-amber-500/30">🤖</span>
+            </div>
+          </div>
+
+          {/* Bottom Descriptive Brand Title */}
+          <div className="relative z-10">
+            <h2 className="text-white text-xl font-extrabold tracking-tight m-0 uppercase bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
+              AI Budget Analyser
+            </h2>
+            <p className="text-slate-400 text-xs mt-2 leading-relaxed font-medium">
+              Harness the power of machine learning for personalized, automated financial insights and control. Smart, simple, secure.
+            </p>
+          </div>
+        </div>
+
+        {/* 🔐 RIGHT PANEL: AUTHENTICATION FORM FIELDS */}
+        <div className="w-full md:w-1/2 p-8 lg:p-12 flex flex-col justify-center">
+          
+          <div className="text-center mb-8">
+            <h1 className="text-slate-900 font-black text-2xl tracking-tight m-0">
+              Welcome Back
+            </h1>
+            <p className="text-slate-400 text-xs font-medium mt-1.5">
               Log in to manage your budget and check AI insights
             </p>
           </div>
 
-          {/* Dynamic Error Banner Display */}
           {error && (
-            <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-md text-center font-medium">
-              {error}
+            <div className="bg-red-50 border border-red-200 text-red-600 text-xs font-semibold p-3.5 rounded-xl mb-4 leading-normal text-center">
+              ⚠️ {error}
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
             
-            {/* Email Field */}
+            {/* Email Box */}
             <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1" htmlFor="email">
-                Email Address
+              <label className="block text-xs font-bold text-slate-700 mb-1.5 tracking-wide" htmlFor="email">
+                EMAIL ADDRESS
               </label>
               <input
                 type="email"
                 id="email"
                 name="email"
-                value={formData.email}
-                onChange={handleChange}
-                placeholder="you@example.com"
                 required
                 disabled={loading}
-                className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:bg-slate-100 disabled:cursor-not-allowed text-slate-900"
+                placeholder="you@example.com"
+                value={formData.email}
+                onChange={handleChange}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl font-medium text-sm text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all box-border disabled:bg-slate-100 disabled:cursor-not-allowed"
               />
             </div>
 
-            {/* Password Field */}
+            {/* Password Box */}
             <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="text-xs font-semibold text-slate-600" htmlFor="password">
-                  Password
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-xs font-bold text-slate-700 tracking-wide" htmlFor="password">
+                  PASSWORD
                 </label>
-                <a href="#forgot" className="text-xs text-blue-600 no-underline hover:underline">
+                <a href="#forgot" className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-all no-underline">
                   Forgot password?
                 </a>
               </div>
@@ -140,51 +169,47 @@ export default function LoginPage() {
                 type="password"
                 id="password"
                 name="password"
-                value={formData.password}
-                onChange={handleChange}
-                placeholder="••••••••"
                 required
                 disabled={loading}
-                className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm focus:outline-none focus:border-blue-500 transition-colors disabled:bg-slate-100 disabled:cursor-not-allowed text-slate-900"
+                placeholder="••••••••"
+                value={formData.password}
+                onChange={handleChange}
+                className="w-full px-4 py-3 border border-slate-200 rounded-xl font-medium text-sm text-slate-800 bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all box-border disabled:bg-slate-100 disabled:cursor-not-allowed"
               />
             </div>
 
-            {/* Submit Button */}
+            {/* Sign-In Submit Action Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white font-semibold py-2.5 px-4 rounded-md shadow-sm hover:bg-blue-700 transition-colors mt-2 disabled:bg-blue-400 disabled:cursor-not-allowed text-sm cursor-pointer"
+              className="w-full py-3.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl border-none cursor-pointer shadow-md shadow-blue-500/10 hover:shadow-lg hover:shadow-blue-500/20 active:scale-[0.99] transition-all disabled:bg-blue-400 disabled:cursor-not-allowed disabled:shadow-none mt-2"
             >
               {loading ? "Logging in..." : "Log In"}
             </button>
           </form>
 
-          {/* Custom Horizontal Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200"></div>
+          {/* Form Bottom Navigation Utilities */}
+          <div className="mt-8 text-center">
+            <div className="relative flex py-2 items-center justify-center">
+              <div className="absolute inset-x-0 border-t border-slate-200"></div>
+              <span className="relative bg-white px-3 text-[10px] font-bold text-slate-400 tracking-wider uppercase">
+                New to the platform?
+              </span>
             </div>
-            <div className="relative flex justify-center text-[10px] font-bold uppercase tracking-wider">
-              <span className="bg-white px-3 text-slate-400">New to the platform?</span>
-            </div>
-          </div>
 
-          {/* Route Transition Link to Register */}
-          <div className="text-center text-sm text-slate-600">
-            Don't have an account?{' '}
-            <Link 
-              to="/register" 
-              className="font-semibold text-blue-600 no-underline hover:underline"
-            >
-              Create an account
-            </Link>
+            <p className="text-xs font-medium text-slate-500 mt-4 mb-0">
+              Don't have an account?{" "}
+              <Link to="/register" className="text-blue-600 font-bold hover:text-blue-700 transition-all no-underline">
+                Create an account
+              </Link>
+            </p>
           </div>
 
         </div>
-      </main>
+      </div>
 
       {/* 3. FOOTER */}
-      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400 mt-auto">
+      <footer className="w-full text-center text-xs text-slate-400 mt-8 select-none">
         <p className="m-0">&copy; {new Date().getFullYear()} Smart Budget Analyzer. Built for Academic Evaluation.</p>
       </footer>
 

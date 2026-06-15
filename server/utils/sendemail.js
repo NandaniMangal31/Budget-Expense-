@@ -1,7 +1,7 @@
 // backend/utils/sendEmail.js
 import nodemailer from "nodemailer";
 
-const sendEmail = async (toEmail, subject, text) => {
+const sendEmail = async (toEmail, subject, htmlContent) => {
   try {
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -15,7 +15,7 @@ const sendEmail = async (toEmail, subject, text) => {
       from: `"Smart Budget Analyzer" <${process.env.EMAIL_USER}>`,
       to: toEmail,
       subject: subject,
-      text: text,
+      html: htmlContent, // 🔄 Changed 'text' to 'html' to support rich template designs
     };
 
     await transporter.sendMail(mailOptions);
