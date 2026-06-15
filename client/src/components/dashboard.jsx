@@ -200,10 +200,23 @@ export default function Dashboard() {
   const totalExpenses = expenses.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0);
   const remainingBudget = parsedMonthlyBudget - totalExpenses;
 
+  // ==========================================
+  // 📊 CALCULATED IN-MEMORY STRUCTS (AUTO-MERGED)
+  // ==========================================
   const categoryTotals = expenses.reduce((acc, curr) => {
     let cat = curr.category || "Other";
-    if (cat.toLowerCase().trim() === "food") cat = "Food & Drinks";
-    acc[cat] = (acc[cat] || 0) + parseSafeAmount(curr.amount);
+    let normalizedCat = cat.trim();
+
+    // Forcefully merge old shorthand database values into strict UI dropdown names
+    if (/^bills$/i.test(normalizedCat)) {
+      normalizedCat = "Bills & Utilities";
+    } else if (/^travel$/i.test(normalizedCat)) {
+      normalizedCat = "Travel & Transport";
+    } else if (/^food$/i.test(normalizedCat)) {
+      normalizedCat = "Food & Drinks";
+    }
+
+    acc[normalizedCat] = (acc[normalizedCat] || 0) + parseSafeAmount(curr.amount);
     return acc;
   }, {});
 
