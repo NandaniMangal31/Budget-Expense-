@@ -43,7 +43,7 @@ function Register() {
 
       alert("Registration Successful!");
       console.log(response.data);
-      navigate("/"); // Successful hone ke baad login page par redirect
+      navigate("/login"); // Successful hone ke baad login page par redirect
 
     } catch (error) {
       console.error("Registration Error Trace:", error);
@@ -228,7 +228,7 @@ function Register() {
             <p className="text-xs font-medium text-slate-500 mt-4 mb-0">
               Already have an account?{" "}
               <span 
-                onClick={() => navigate("/")} 
+                onClick={() => navigate("/login")} 
                 className="text-blue-600 font-bold hover:text-blue-700 transition-all cursor-pointer hover:underline"
               >
                 Login here.
