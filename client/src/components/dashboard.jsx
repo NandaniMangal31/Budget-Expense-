@@ -265,7 +265,7 @@ export default function Dashboard() {
     if (normalized.includes("bill") || normalized.includes("utility")) return { dot: "bg-amber-500", text: "text-amber-600", bg: "bg-amber-50 border-amber-100" };
     if (normalized.includes("entertainment")) return { dot: "bg-teal-700", text: "text-teal-800", bg: "bg-teal-50 border-teal-100" };
     if (normalized.includes("other")) return { dot: "bg-pink-500", text: "text-pink-600", bg: "bg-pink-50 border-pink-100" };
-    return { dot: "bg-green-500", text: "text-green-600", bg: "bg-green-50 border-green-100" };
+    return { dot: "bg-cyan-500", text: "text-cyan-700", bg: "bg-cyan-100 border-cyan-100" };
   };
 
   const displayExpenses = expenses.length > 0 ? [...expenses].reverse() : [];
