@@ -1,182 +1,151 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
-// Simple Mock Icons for Features (Using SVG for ease of use)
-const WalletIcon = () => (
-  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-  </svg>
-);
+// Aapne jo custom Login aur Register components banaye hain, unhe yahan sahi path se import karein
+import Login from "./login";
+import Register from "./register";
 
-const ReceiptIcon = () => (
-  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-  </svg>
-);
-
-const SparklesIcon = () => (
-  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-  </svg>
-);
-
-const ChartIcon = () => (
-  <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-  </svg>
-);
-
-export default function LandingPage() {
-  const [user, setUser] = useState(() => {
-    try {
-      const storedUser = localStorage.getItem("user");
-      return storedUser ? JSON.parse(storedUser) : null;
-    } catch (e) {
-      console.error("Error reading user session data:", e);
-      return null;
-    }
-  });
-
-  const features = [
-    {
-      title: "Budget Tracking",
-      description: "Set your monthly financial limits and monitor your boundaries seamlessly.",
-      icon: <WalletIcon />
-    },
-    {
-      title: "Expense Management",
-      description: "Log your daily expenditures with easy categorization and tags.",
-      icon: <ReceiptIcon />
-    },
-    {
-      title: "AI Insights",
-      description: "Powered by Google Gemini AI to give you smart, personalized saving suggestions.", // 🎯 FIX: OpenAI -> Gemini
-      icon: <SparklesIcon />
-    },
-    {
-      title: "Spending Analysis",
-      description: "Visualize where your money goes with simple, clean layout breakdowns.",
-      icon: <ChartIcon />
-    }
-  ];
+export default function Home() {
+  // Toggle state: "login" ya "register" split panels ke liye
+  const [activeForm, setActiveForm] = useState("login");
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-700 font-sans flex flex-col antialiased">
+    <div className="min-h-screen bg-slate-50 flex flex-col justify-between font-sans antialiased box-border">
       
-      {/* 1. NAVIGATION BAR */}
-      <nav className="bg-white border-b border-slate-200 sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-          {/* 🎯 FIX: Changed route from "/" to "/home" to sync with routing logic */}
-          <Link to="/home" className="flex items-center gap-2 no-underline select-none">
-            <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-sm">
-              SBL
-            </div>
-            <span className="font-bold text-lg text-slate-900 tracking-tight">SmartSpending Lock</span>
-          </Link>
-          
-          <div className="flex items-center gap-6 font-medium text-sm">
-            <a href="#home" className="text-slate-600 hover:text-blue-600 transition-colors no-underline">Home</a>
-            <a href="#features" className="text-slate-600 hover:text-blue-600 transition-colors no-underline">Features</a>
-            
-            {user ? (
-              <Link 
-                to="/dashboard" 
-                className="bg-blue-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-blue-700 transition-colors no-underline"
-              >
-                Dashboard
-              </Link>
-            ) : (
-              <>
-                <Link 
-                  to="/" // Hamara login page ab "/" route par hai, toh yeh perfect hai
-                  className="text-slate-600 hover:text-blue-600 transition-colors no-underline"
-                >
-                  Login
-                </Link>
-                <Link 
-                  to="/register" 
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md font-semibold hover:bg-blue-700 transition-colors no-underline"
-                >
-                  Register
-                </Link>
-              </>
-            )}
+      {/* 🌐 PREMIUM GLASS NAVBAR */}
+      <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50 px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-2.5 select-none">
+          <div className="bg-blue-600 text-white font-black text-xs px-2.5 py-1.5 rounded-lg shadow-md tracking-wider">
+            SBA
           </div>
+          <span className="font-extrabold text-lg text-slate-900 tracking-tight">
+            SmartBudget <span className="text-blue-600 font-medium text-xs">AI Core</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setActiveForm("login")} 
+            className={`text-xs font-bold px-4 py-2 rounded-xl transition-all border-none cursor-pointer ${activeForm === "login" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-100"}`}
+          >
+            Sign In
+          </button>
+          <button 
+            onClick={() => setActiveForm("register")} 
+            className={`text-xs font-bold px-4 py-2 rounded-xl transition-all border-none cursor-pointer ${activeForm === "register" ? "bg-slate-900 text-white" : "bg-transparent text-slate-600 hover:bg-slate-100"}`}
+          >
+            Join Free
+          </button>
         </div>
       </nav>
 
-      {/* 2. HERO SECTION */}
-      <header id="home" className="bg-gradient-to-b from-blue-50 to-white py-20 px-4 border-b border-slate-200 text-center">
-        <div className="max-w-3xl mx-auto">
-          {/* 🎯 FIX: OpenAI -> Google Gemini AI */}
-          <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider inline-block">
-            MERN Stack + Google Gemini AI Project
-          </span>
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-slate-900 mt-6 mb-4 leading-tight">
-            Take Control of Your Finances with AI
+      {/* 🎴 HERO MULTI-PANEL SPLIT ENGINE */}
+      <main className="max-w-7xl w-full mx-auto p-6 md:p-12 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center flex-grow box-border">
+        
+        {/* LEFT COLUMN: HERO MARKETING VALUE PROPOSITION */}
+        <div className="lg:col-span-7 space-y-6 text-left select-none">
+          <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-full border border-blue-200/50 text-xs font-bold tracking-wide uppercase">
+            ✨ Next-Gen Capstone Analytics Platform
+          </div>
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-black text-slate-900 tracking-tight leading-none m-0">
+            Automate Your Cashflows with <span className="bg-gradient-to-r from-blue-600 to-cyan-500 bg-clip-text text-transparent">AI Matrix Core</span>
           </h1>
-          <p className="text-lg text-slate-500 mb-8 max-w-2xl mx-auto leading-relaxed">
-            Track expenses, manage budgets, and receive AI-powered financial insights. 
-            Built simple and clean to help you manage your money efficiently.
+          <p className="text-slate-500 text-sm md:text-base leading-relaxed font-medium max-w-xl m-0">
+            Upload loose receipts, scan ledger PDFs, and monitor live spending thresholds against targeted budget configurations instantly. Safe, localized, and mathematically structured.
           </p>
-          <div className="flex flex-row gap-4 justify-center items-center">
-            <Link 
-              to="/register" 
-              className="bg-blue-600 text-white font-semibold px-6 py-3 rounded-md shadow-sm hover:bg-blue-700 transition-colors no-underline"
-            >
-              Get Started
-            </Link>
-            <a 
-              href="#features" 
-              className="bg-white border border-slate-300 text-slate-600 font-semibold px-6 py-3 rounded-md hover:bg-slate-50 transition-colors no-underline"
-            >
-              Learn More
-            </Link>
-          </div>
-        </div>
-      </header>
 
-      {/* 3. FEATURES SECTION */}
-      <section id="features" className="py-20 px-4 max-w-6xl mx-auto w-full flex-grow">
-        <div className="text-center mb-12">
-          <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 mb-3">Core Application Features</h2>
-          <p className="text-slate-500 max-w-md mx-auto text-sm leading-relaxed">
-            Everything you need to monitor balances and saving metrics in one straightforward dashboard.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {features.map((feature, index) => (
-            <div 
-              key={index} 
-              className="bg-white p-6 rounded-lg border border-slate-200 shadow-sm hover:border-blue-300 transition-colors"
-            >
-              <div className="w-11 h-11 bg-blue-50 rounded-md flex items-center justify-center mb-4">
-                {feature.icon}
+          {/* Feature Badges Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4">
+            <div className="flex items-center gap-3 bg-white border border-slate-200 p-3.5 rounded-2xl shadow-2xs">
+              <span className="text-xl">📸</span>
+              <div>
+                <h4 className="text-xs font-black text-slate-900 m-0">Universal OCR Scanning</h4>
+                <p className="text-[11px] font-medium text-slate-400 m-0 mt-0.5">Parse PNG/PDF records instantly.</p>
               </div>
-              <h3 className="text-base font-bold text-slate-900 mb-2">
-                {feature.title}
-              </h3>
-              <p className="text-sm text-slate-500 leading-relaxed">
-                {feature.description}
-              </p>
             </div>
-          ))}
+            <div className="flex items-center gap-3 bg-white border border-slate-200 p-3.5 rounded-2xl shadow-2xs">
+              <span className="text-xl">🎯</span>
+              <div>
+                <h4 className="text-xs font-black text-slate-900 m-0">Strict Allocation Targets</h4>
+                <p className="text-[11px] font-medium text-slate-400 m-0 mt-0.5">Get automatic breach warnings.</p>
+              </div>
+            </div>
+          </div>
         </div>
-      </section>
 
-      {/* 4. FOOTER SECTION */}
-      <footer className="bg-slate-900 text-slate-400 py-8 px-4 border-t border-slate-800 mt-auto">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between text-sm gap-4">
-          <div>
-            <p className="font-semibold text-white mb-0">Smart Spending Lock</p>
-            <p className="text-xs text-slate-500 mt-1 mb-0">© {new Date().getFullYear()} College Capstone Project.</p>
-          </div>
-          {/* 🎯 FIX: OpenAI -> Gemini */}
-          <div className="text-xs text-slate-600 font-medium">
-            Built with: React • Node.js • MongoDB • Express • Google Gemini AI
+        {/* RIGHT COLUMN: DYNAMIC CONTROL BOX (FORM HOST) */}
+        <div className="lg:col-span-5 w-full flex flex-col items-center">
+          <div className="w-full bg-white border border-slate-200 rounded-3xl shadow-xl overflow-hidden p-8 box-border relative">
+            
+            {/* Top Interactive Form Header Toggle */}
+            <div className="flex bg-slate-100 p-1 rounded-xl mb-6 select-none">
+              <button 
+                onClick={() => setActiveForm("login")} 
+                className={`flex-1 py-2 text-xs font-bold rounded-lg border-none cursor-pointer transition-all ${activeForm === "login" ? "bg-white text-slate-900 shadow-xs" : "bg-transparent text-slate-400 hover:text-slate-600"}`}
+              >
+                Access Account
+              </button>
+              <button 
+                onClick={() => setActiveForm("register")} 
+                className={`flex-1 py-2 text-xs font-bold rounded-lg border-none cursor-pointer transition-all ${activeForm === "register" ? "bg-white text-slate-900 shadow-xs" : "bg-transparent text-slate-400 hover:text-slate-600"}`}
+              >
+                New Registration
+              </button>
+            </div>
+
+            {/* Form Rendering Routing */}
+            <div className="transition-all duration-300">
+              {activeForm === "login" ? (
+                <div>
+                  {/* NOTE: Agar aapke pas direct components hain, toh <Login /> call karein */}
+                  <h3 className="text-slate-900 font-bold text-lg tracking-tight m-0 text-center">Welcome Back</h3>
+                  <p className="text-slate-400 text-xs text-center mt-1 mb-4">Log in to manage your budget and check AI insights</p>
+                  
+                  {/* Static Placeholder for Form Concept - Direct Mapping Recommended */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1 tracking-wide">EMAIL ADDRESS</label>
+                      <input type="email" placeholder="yashiagrawa14@gmail.com" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1 tracking-wide">PASSWORD</label>
+                      <input type="password" placeholder="••••••••" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50" />
+                    </div>
+                    <button className="w-full py-3 bg-blue-600 text-white font-bold text-sm rounded-xl border-none cursor-pointer shadow-sm mt-2">Log In</button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {/* NOTE: Aap chahein toh yahan seedhe apna <Register /> component include kar sakte hain */}
+                  <h3 className="text-slate-900 font-bold text-lg tracking-tight m-0 text-center">Create Account</h3>
+                  <p className="text-slate-400 text-xs text-center mt-1 mb-4">Start monitoring matrices in under two minutes</p>
+                  
+                  <div className="space-y-3.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1 tracking-wide">FULL NAME</label>
+                      <input type="text" placeholder="e.g., Jane Doe" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1 tracking-wide">EMAIL ADDRESS</label>
+                      <input type="email" placeholder="jane.doe@email.com" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 mb-1 tracking-wide">CHOOSE PASSWORD</label>
+                      <input type="password" placeholder="Min 8 characters" className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50" />
+                    </div>
+                    <button className="w-full py-3 bg-blue-600 text-white font-bold text-sm rounded-xl border-none cursor-pointer shadow-sm mt-2">Register 🚀</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
+
+      </main>
+
+      {/* 🌐 CLEAN ACADEMIC FOOTER */}
+      <footer className="w-full text-center py-5 text-xs text-slate-400 border-t border-slate-200 bg-white select-none">
+        &copy; {new Date().getFullYear()} Smart Budget Analyzer. Built for Academic Evaluation.
       </footer>
 
     </div>
