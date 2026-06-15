@@ -121,7 +121,11 @@ export default function Dashboard() {
     } catch (err) { console.error(err); }
   }, []);
 
-  useEffect(() => { fetchDashboardData(); }, [fetchDashboardData]);
+  useEffect(() => 
+    { 
+      localStorage.clear();
+      navigate("/",{replace:true});
+      fetchDashboardData(); }, [fetchDashboardData]);
 
   const refreshExpenses = async () => {
     if (!userId) return;
