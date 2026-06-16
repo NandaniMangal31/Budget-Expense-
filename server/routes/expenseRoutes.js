@@ -60,6 +60,13 @@ const cleanAmount = (amtStr) => {
 router.post("/scan", verifyToken, upload.single("file"), async (req, res) => {
   try {
     const userId = req.user._id;
+    
+    // ✅ Handle JSON payload with base64 imageBuffer (from client)
+    if (req.body.imageBuffer && req.body.mimeType) {
+      return scanReceiptAndProcess(req, res);
+    }
+    
+    // ✅ Handle multipart file upload
     if (!req.file) {
       return res.status(400).json({ success: false, message: "No file uploaded!" });
     }
