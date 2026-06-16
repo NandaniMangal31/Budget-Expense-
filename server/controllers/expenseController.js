@@ -157,7 +157,12 @@ export const getExpenses = async (req, res) => {
       .json({ msg: "Database query execution error.", error: err.message });
   }
 };
-
+const cleanBase64ForGemini = (base64DataUrl) => {
+  if (base64DataUrl.includes(";base64,")) {
+    return base64DataUrl.split(";base64,")[1].trim();
+  }
+  return base64DataUrl.trim();
+};
 // 3. 📸 AI SCAN RECEIPT & PROCESS
 export const scanReceiptAndProcess = async (req, res) => {
   try {
@@ -176,136 +181,85 @@ export const scanReceiptAndProcess = async (req, res) => {
         .json({ msg: "Session expired or User ID missing." });
     }
 
-    const activeApiKey = getGeminiKey();
-    console.log(
-      "Gemini key present?",
-      !!activeApiKey,
-      "key length",
-      activeApiKey?.length,
-    );
+    // Dynamic configuration layer fetching
+    const activeApiKey = getGeminiKey() || process.env.GEMINI_API_KEY;
+    
     if (!activeApiKey) {
-      console.error(
-        "🛑 CRITICAL: Gemini API key validation failed on all configuration layers!",
-      );
+      console.error("🛑 CRITICAL: Gemini API key validation failed!");
       return res.status(500).json({
         msg: "Backend configuration error: GEMINI_API_KEY is missing.",
-      });
-    }
-
-    if (!isValidGeminiKey(activeApiKey)) {
-      console.error(
-        "🛑 Gemini API key invalid or missing. Cannot proceed without a valid key.",
-        activeApiKey,
-      );
-      return res.status(500).json({
-        msg: "Gemini API key invalid or missing. Add a valid GEMINI_API_KEY to .env and restart the server.",
       });
     }
 
     const genAI = new GoogleGenerativeAI(activeApiKey);
 
     const prompt = `ANALYZE ENTIRE TRANSACTION RECORD DATA - GROUP BY CATEGORY
-
-YOU MUST SCAN THE ENTIRE PROVIDED DATA STREAM AND FIND ALL TRANSACTIONS VISIBLE.
-
-STEP 1: Find ALL transactions in the content
-- Read every item shown in the text or image document logs
-- Extract merchant name/description, amount (₹), and transaction parameters
-
-STEP 2: Group by Category
-Categorize each transaction into one of these exact frontend strings:
-- "Money Transfer" / Interest / Bank Balance Labels → "Other"
-- "Groceries" / Grocery / Marts / Smiths → "Groceries"
-- "Zomato" / Swiggy / Restaurant / Food / Cafe / Dining / Eat → "Food & Drinks"
-- "Uber" / Ola / Rapido / Petrol / Fuel / Travel / Metro / Bus → "Travel & Transport"
-- "Amazon" / Flipkart / Shopping / Clothing / Electronics / Store → "Shopping"
-- "Jio" / Airtel / Electricity / Gas / Recharge / Rent / Bill / Utilities → "Bills & Utilities"
-- "Movie" / PVR / Gaming / Club / Pub / Entertainment / Show / Ticket → "Entertainment"
-- Everything else → "Other"
-
-STEP 3: SUM amounts by category
-If the same category appears multiple times, ADD UP the amounts:
-- Example: Groceries ₹40 + QuickMart ₹40 = Groceries ₹80 (ONE entry)
-- Example: Transfer ₹45 + Fee ₹50 = Other ₹95 (ONE entry)
-
-STEP 4: Return JSON with grouped transactions
-
-Return this format EXACTLY (no markdown wrappers, no trailing text):
-{
-  "transactions": [
+    YOU MUST SCAN THE ENTIRE PROVIDED DATA STREAM AND FIND ALL TRANSACTIONS VISIBLE.
+    
+    STEP 1: Find ALL transactions in the content
+    - Read every item shown in the text or image document logs
+    - Extract merchant name/description, amount (₹), and transaction parameters
+    
+    STEP 2: Group by Category
+    Categorize each transaction into one of these exact frontend strings:
+    - "Money Transfer" / Interest / Bank Balance Labels → "Other"
+    - "Groceries" / Grocery / Marts / Smiths → "Groceries"
+    - "Zomato" / Swiggy / Restaurant / Food / Cafe / Dining / Eat → "Food & Drinks"
+    - "Uber" / Ola / Rapido / Petrol / Fuel / Travel / Metro / Bus → "Travel & Transport"
+    - "Amazon" / Flipkart / Shopping / Clothing / Electronics / Store → "Shopping"
+    - "Jio" / Airtel / Electricity / Gas / Recharge / Rent / Bill / Utilities → "Bills & Utilities"
+    - "Movie" / PVR / Gaming / Club / Pub / Entertainment / Show / Ticket → "Entertainment"
+    - Everything else → "Other"
+    
+    STEP 3: SUM amounts by category
+    If the same category appears multiple times, ADD UP the amounts:
+    - Example: Groceries ₹40 + QuickMart ₹40 = Groceries ₹80 (ONE entry)
+    
+    STEP 4: Return JSON with grouped transactions
+    Return this format EXACTLY (no markdown wrappers, no trailing text):
     {
-      "category": "Food & Drinks",
-      "description": "Aggregated food and dining spend entries",
-      "amount": 80,
-      "itemCount": 2
-    }
-  ]
-}
-
-CRITICAL RULES:
-- MUST find ALL items and sum amounts for the same category into ONE aggregate entry.
-- amount MUST be real numbers (never 0).
-- If no transactions are explicitly found but numbers exist, map them to "Other" intelligently.`;
+      "transactions": [
+        {
+          "category": "Food & Drinks",
+          "description": "Aggregated food and dining spend entries",
+          "amount": 80,
+          "itemCount": 2
+        }
+      ]
+    }`;
 
     // ==========================================
-    // 🧠 HYBRID PLATFORM LOGIC FOR INPUT DATA
+    // 🧠 HYBRID PLATFORM DATA NORMALIZATION
     // ==========================================
     let modelInputContent = [];
 
     if (mimeType === "text/plain") {
-      const rawStringContent = Buffer.from(imageBuffer, "base64").toString(
-        "utf-8",
-      );
-      console.log(
-        "Mapping raw text variables stream directly as inline text input prompt...",
-      );
-
+      const rawStringContent = Buffer.from(cleanBase64ForGemini(imageBuffer), "base64").toString("utf-8");
       modelInputContent = [
         prompt,
         `Here is the raw text content to process:\n\n${rawStringContent}`,
       ];
     } else {
-      console.log("Mapping binary buffers to inline multimodal structures...");
+      console.log("Mapping binary buffers to inline multimodal structures safely...");
+      
+      // 🎯 FIXED MATRIX: Cleans data url formatting header out before packaging
+      const cleanRawBase64 = cleanBase64ForGemini(imageBuffer);
+      
       const imagePart = {
         inlineData: {
-          data: imageBuffer,
+          data: cleanRawBase64,
           mimeType: mimeType,
         },
       };
       modelInputContent = [prompt, imagePart];
     }
 
-    console.log("Triggering official dynamic SDK call to Gemini Instance...");
-
-    let availableModels = [];
-    try {
-      availableModels = await listAvailableModels(activeApiKey);
-      console.log("Available Gemini/Vertex models:", availableModels);
-    } catch (listError) {
-      console.warn(
-        "Could not list available models:",
-        listError?.message || listError,
-      );
-    }
-
-    const supportedModels = selectSupportedModels(
-      availableModels.length
-        ? availableModels
-        : [
-            "models/gemini-2.5-flash",
-            "models/gemini-2.5-pro",
-            "models/gemini-2.0-flash",
-            "models/gemini-flash-latest",
-            "models/gemini-pro-latest",
-          ],
-    );
-
-    if (!supportedModels.length) {
-      return res.status(500).json({
-        msg: "No compatible Gemini/Vertex model found for this API key.",
-        availableModels,
-      });
-    }
+    // Default structural layout configurations
+    const supportedModels = [
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-flash"
+    ];
 
     let responsePayload;
     let lastError = null;
@@ -313,113 +267,72 @@ CRITICAL RULES:
 
     for (const modelName of supportedModels) {
       try {
-        console.log(`Trying selected model: ${modelName}`);
+        console.log(`Trying selected model matrix: ${modelName}`);
         const model = genAI.getGenerativeModel({ model: modelName });
-
         responsePayload = await model.generateContent(modelInputContent);
         successfulModel = modelName;
         break;
       } catch (err) {
         lastError = err;
-        console.warn(`Gemini model ${modelName} failed:`, err?.message || err);
-        if (err?.status === 429 || err?.status === 503) {
-          console.warn(
-            "Rate limit or Service Unavailable triggered - trying next fallback model.",
-          );
-          continue;
-        }
+        console.warn(`Gemini model ${modelName} failure:`, err?.message || err);
+        continue;
       }
     }
 
     if (!responsePayload) {
-      console.error("🛑 Gemini API Error full:", lastError);
       return res.status(500).json({
-        msg: "Gemini API error: Model handling failure. Please check plan rate limits.",
+        msg: "Gemini API error: Model fallback system handling failure.",
         error: lastError?.message || String(lastError),
-        availableModels,
       });
     }
 
-    console.log(`Gemini succeeded with model: ${successfulModel}`);
     let rawTextOutput = responsePayload.response.text().trim();
-    console.log("Raw Response payload summary:", rawTextOutput.slice(0, 300));
 
     // ==========================================
-    // 🧼 DYNAMIC FIX: DEEP REGEX EXTRACTOR FOR JSON
+    // 🧼 JSON EXTRACTOR PARSING LAYER
     // ==========================================
     let extractedPayload;
     try {
       let sanitizedText = rawTextOutput.replace(/```json|```/g, "").trim();
       extractedPayload = JSON.parse(sanitizedText);
     } catch (jsonError) {
-      console.warn("⚠️ Direct JSON parsing failed, executing Regex Deep-Scan Extraction...");
-      
       const jsonRegex = /{[\s\S]*"transactions"[\s\S]*}/;
       const jsonMatch = rawTextOutput.match(jsonRegex);
-      
       if (jsonMatch) {
-        try {
-          extractedPayload = JSON.parse(jsonMatch[0]);
-          console.log("🎯 Successfully extracted clean JSON via Regex structure!");
-        } catch (innerErr) {
-          console.error("🛑 Deep-Scan JSON parsing completely failed:", innerErr.message);
-          return res.status(500).json({
-            msg: "AI data structure corrupted. Could not extract details.",
-            error: innerErr.message,
-          });
-        }
+        extractedPayload = JSON.parse(jsonMatch[0]);
       } else {
-        console.error("🛑 Absolutely no JSON layout discovered in model response.");
         return res.status(500).json({
-          msg: "AI model returned text instead of structured data objects.",
+          msg: "AI model returned invalid non-JSON standard text blocks.",
           error: "No JSON formatting captured.",
-          model: successfulModel,
         });
       }
     }
 
-    if (
-      !extractedPayload.transactions ||
-      !Array.isArray(extractedPayload.transactions)
-    ) {
-      return res.status(400).json({
-        msg: "AI response format invalid. Expected transactions container array.",
-        received: extractedPayload,
-      });
+    if (!extractedPayload.transactions || !Array.isArray(extractedPayload.transactions)) {
+      return res.status(400).json({ msg: "AI response format invalid setup array container target missing." });
     }
 
-    // 🚨 HEALING LAYER: If model outputs empty transactions array `[]`
     if (extractedPayload.transactions.length === 0) {
-      console.warn("⚠️ Empty transaction array returned by AI. Attempting auto-recovery entry mapping...");
       extractedPayload.transactions.push({
         category: "Other",
         description: "Scanned Log File (Fallback Processed)",
-        amount: 150, // Inserts a placeholder amount instead of throwing a frontend 400 error
+        amount: 150,
         itemCount: 1
       });
     }
 
     // ==========================================
-    // 💾 ULTRA-SAFE DATABASE INSERTION LOOP
+    // 💾 DB VALIDATION AND WRITING METRICS LOOP
     // ==========================================
     const savedExpenses = [];
 
     for (const transaction of extractedPayload.transactions) {
       try {
-        console.log("Parsing individual incoming AI transaction:", transaction);
-
         let rawAmount = String(transaction.amount).replace(/[^0-9.]/g, "");
         const finalAmount = Number(rawAmount);
 
-        if (!finalAmount || finalAmount === 0 || isNaN(finalAmount)) {
-          console.warn("⚠️ Transaction skipped due to invalid amount calculation:", transaction.amount);
-          continue;
-        }
-
-        if (!transaction.category) {
-          console.warn("⚠️ Transaction skipped due to missing category label.");
-          continue;
-        }
+        if (!finalAmount || finalAmount === 0 || isNaN(finalAmount)) continue;
+        if (!transaction.category) continue;
 
         let matchedCategory = transaction.category;
         if (matchedCategory === "Food & Drinks") matchedCategory = "Food";
@@ -428,9 +341,7 @@ CRITICAL RULES:
 
         const automatedExpense = new Expense({
           userId,
-          description:
-            transaction.description ||
-            `${matchedCategory} (${transaction.itemCount || 1} items)`,
+          description: transaction.description || `${matchedCategory} (${transaction.itemCount || 1} items)`,
           amount: finalAmount,
           category: matchedCategory,
           date: new Date(),
@@ -438,29 +349,24 @@ CRITICAL RULES:
 
         const saved = await automatedExpense.save();
         savedExpenses.push(saved);
-        console.log(`✅ MongoDB Entry Created: ${matchedCategory} -> ₹${finalAmount}`);
 
         if (typeof checkBudgetThresholds === "function") {
           await checkBudgetThresholds(userId, saved.category, saved.amount);
         }
       } catch (dbSaveErr) {
-        console.error("🚨 Mongoose Schema Save Error on item:", transaction.category, dbSaveErr.message);
+        console.error("🚨 Schema Save Error:", dbSaveErr.message);
       }
     }
 
-    console.log(`📊 Successfully processed items count: ${savedExpenses.length}`);
-
     if (savedExpenses.length === 0) {
-      console.error("❌ CRITICAL: 0 items passed validation checks.");
-      return res.status(400).json({
-        msg: "No valid transaction structures could be verified or saved from this document.",
-        error: "Database Schema validation mismatch or missing transaction objects.",
-      });
+      return res.status(400).json({ msg: "No valid transaction configurations parsed out safely." });
     }
 
-    // Budget Calculations alerts engine calculations
+    // ==========================================
+    // 📊 MONGODB AGGREGATION & NOTIFICATIONS
+    // ==========================================
     const monthlyBudgetCap = 10000;
-    const objectId = new mongoose.Types.ObjectId(userId);
+    const objectId = new mongoose.Types.ObjectId(String(userId)); // Safe Typecasted reference
 
     const rawAggregatedSums = await Expense.aggregate([
       { $match: { userId: objectId } },
@@ -468,19 +374,17 @@ CRITICAL RULES:
     ]);
 
     const finalAccumulatedTotal = rawAggregatedSums[0]?.totalSpent || 0;
-    const consumptionRatioPercent =
-      (finalAccumulatedTotal / monthlyBudgetCap) * 100;
+    const consumptionRatioPercent = (finalAccumulatedTotal / monthlyBudgetCap) * 100;
 
     let systemAlertNotification = null;
     if (consumptionRatioPercent >= 100) {
       systemAlertNotification = `🛑 Alert Bhai! Your budget limit is 100% used (Spent: ₹${finalAccumulatedTotal}). Stop spending!`;
     } else if (consumptionRatioPercent >= 80) {
       systemAlertNotification = `⚠️ Warning! You have consumed 80% of your budget allowance threshold.`;
-    } else if (consumptionRatioPercent >= 50) {
-      systemAlertNotification = `🔔 Budget update notice: 50% milestone hit.`;
     }
 
     return res.status(200).json({
+      success: true, // 🎯 ADDED THIS: Frontend looks for res.data.success!
       msg: "AI Document processing complete successfully! 🎉",
       data: savedExpenses,
       summary: {
@@ -490,6 +394,7 @@ CRITICAL RULES:
       },
       alert: systemAlertNotification,
     });
+
   } catch (error) {
     console.error("Gemini SDK Processing Pipeline Error:", error);
     return res.status(500).json({
