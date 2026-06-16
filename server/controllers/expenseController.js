@@ -1,5 +1,5 @@
 import axios from "axios";
-import { GoogleGenerativeAI } from "@google/generative-ai"; 
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import mongoose from "mongoose";
 import Expense from "../models/Expense.js";
 import { checkBudgetThresholds } from "../utils/budgetAlertEngine.js";
@@ -52,17 +52,17 @@ const listAvailableModels = async (apiKey) => {
 
 const selectSupportedModels = (availableModels) => {
   const preferredOrder = [
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.0-flash",
-    "gemini-flash-latest",
-    "gemini-pro-latest",
-    "gemini-3.1-flash-image",
-    "gemini-3-pro-image",
-    "gemini-3.1-pro-image",
-    "gemini-2.5-flash-image",
-    "gemini-3.1-flash-preview",
-    "gemini-3-pro-preview",
+    "models/gemini-2.5-flash",
+    "models/gemini-2.5-pro",
+    "models/gemini-2.0-flash",
+    "models/gemini-flash-latest",
+    "models/gemini-pro-latest",
+    "models/gemini-3.1-flash-image",
+    "models/gemini-3-pro-image",
+    "models/gemini-3.1-pro-image",
+    "models/gemini-2.5-flash-image",
+    "models/gemini-3.1-flash-preview",
+    "models/gemini-3-pro-preview"
   ];
 
   const ordered = [];
@@ -183,7 +183,7 @@ export const scanReceiptAndProcess = async (req, res) => {
 
     // Dynamic configuration layer fetching
     const activeApiKey = getGeminiKey() || process.env.GEMINI_API_KEY;
-    
+
     if (!activeApiKey) {
       console.error("🛑 CRITICAL: Gemini API key validation failed!");
       return res.status(500).json({
@@ -233,32 +233,61 @@ export const scanReceiptAndProcess = async (req, res) => {
     // ==========================================
     let modelInputContent = [];
 
-    if (mimeType === "text/plain") {
-      const rawStringContent = Buffer.from(cleanBase64ForGemini(imageBuffer), "base64").toString("utf-8");
+    // Base64 clean guard system (Advanced version)
+    let cleanRawBase64 = imageBuffer;
+    if (imageBuffer.includes(";base64,")) {
+      cleanRawBase64 = imageBuffer.split(";base64,")[1];
+    }
+    cleanRawBase64 = cleanRawBase64.replace(/\s/g, ""); // Saari hidden spaces aur newlines saaf karo
+
+    // Safely normalize MIME types according to Google API standards
+    let verifiedMimeType = mimeType;
+    if (mimeType === "image/jpg") verifiedMimeType = "image/jpeg"; // Gemini strictly wants jpeg, not jpg
+
+    if (verifiedMimeType === "text/plain") {
+      try {
+        const rawStringContent = Buffer.from(cleanRawBase64, "base64").toString(
+          "utf-8",
+        );
+        console.log(
+          "Mapping raw text variables stream directly as content prompt...",
+        );
+
+        modelInputContent = [
+          prompt,
+          `Here is the raw document text data content to analyze:\n\n${rawStringContent}`,
+        ];
+      } catch (textParseErr) {
+        console.error(
+          "Text parsing fallback triggered error:",
+          textParseErr.message,
+        );
+        return res
+          .status(400)
+          .json({ msg: "Failed to decode base64 text stream safely." });
+      }
+    } else {
+      console.log(
+        `Mapping binary buffers to standard multimodal structures for MIME: ${verifiedMimeType}`,
+      );
+
+      // 🎯 THE WINNING STRUCTURE: Strictly packaged parts for Google Generative AI
       modelInputContent = [
         prompt,
-        `Here is the raw text content to process:\n\n${rawStringContent}`,
-      ];
-    } else {
-      console.log("Mapping binary buffers to inline multimodal structures safely...");
-      
-      // 🎯 FIXED MATRIX: Cleans data url formatting header out before packaging
-      const cleanRawBase64 = cleanBase64ForGemini(imageBuffer);
-      
-      const imagePart = {
-        inlineData: {
-          data: cleanRawBase64,
-          mimeType: mimeType,
+        {
+          inlineData: {
+            data: cleanRawBase64,
+            mimeType: verifiedMimeType,
+          },
         },
-      };
-      modelInputContent = [prompt, imagePart];
+      ];
     }
 
     // Default structural layout configurations
     const supportedModels = [
       "gemini-2.5-flash",
       "gemini-2.0-flash",
-      "gemini-1.5-flash"
+      "gemini-1.5-flash",
     ];
 
     let responsePayload;
@@ -308,8 +337,15 @@ export const scanReceiptAndProcess = async (req, res) => {
       }
     }
 
-    if (!extractedPayload.transactions || !Array.isArray(extractedPayload.transactions)) {
-      return res.status(400).json({ msg: "AI response format invalid setup array container target missing." });
+    if (
+      !extractedPayload.transactions ||
+      !Array.isArray(extractedPayload.transactions)
+    ) {
+      return res
+        .status(400)
+        .json({
+          msg: "AI response format invalid setup array container target missing.",
+        });
     }
 
     if (extractedPayload.transactions.length === 0) {
@@ -317,7 +353,7 @@ export const scanReceiptAndProcess = async (req, res) => {
         category: "Other",
         description: "Scanned Log File (Fallback Processed)",
         amount: 150,
-        itemCount: 1
+        itemCount: 1,
       });
     }
 
@@ -337,11 +373,14 @@ export const scanReceiptAndProcess = async (req, res) => {
         let matchedCategory = transaction.category;
         if (matchedCategory === "Food & Drinks") matchedCategory = "Food";
         if (matchedCategory === "Bills & Utilities") matchedCategory = "Bills";
-        if (matchedCategory === "Travel & Transport") matchedCategory = "Travel";
+        if (matchedCategory === "Travel & Transport")
+          matchedCategory = "Travel";
 
         const automatedExpense = new Expense({
           userId,
-          description: transaction.description || `${matchedCategory} (${transaction.itemCount || 1} items)`,
+          description:
+            transaction.description ||
+            `${matchedCategory} (${transaction.itemCount || 1} items)`,
           amount: finalAmount,
           category: matchedCategory,
           date: new Date(),
@@ -359,7 +398,11 @@ export const scanReceiptAndProcess = async (req, res) => {
     }
 
     if (savedExpenses.length === 0) {
-      return res.status(400).json({ msg: "No valid transaction configurations parsed out safely." });
+      return res
+        .status(400)
+        .json({
+          msg: "No valid transaction configurations parsed out safely.",
+        });
     }
 
     // ==========================================
@@ -374,7 +417,8 @@ export const scanReceiptAndProcess = async (req, res) => {
     ]);
 
     const finalAccumulatedTotal = rawAggregatedSums[0]?.totalSpent || 0;
-    const consumptionRatioPercent = (finalAccumulatedTotal / monthlyBudgetCap) * 100;
+    const consumptionRatioPercent =
+      (finalAccumulatedTotal / monthlyBudgetCap) * 100;
 
     let systemAlertNotification = null;
     if (consumptionRatioPercent >= 100) {
@@ -394,7 +438,6 @@ export const scanReceiptAndProcess = async (req, res) => {
       },
       alert: systemAlertNotification,
     });
-
   } catch (error) {
     console.error("Gemini SDK Processing Pipeline Error:", error);
     return res.status(500).json({
