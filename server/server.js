@@ -13,7 +13,7 @@ connectDB();
 
 const app = express();
 
-// CORS CONFIGURATION
+// ✅ CORS CONFIGURATION
 app.use(cors({
   origin: [
     "https://smart-spending-frontend.vercel.app",
@@ -23,15 +23,26 @@ app.use(cors({
   credentials: true
 }));
 
-// PARSER MIDDLEWARES
+// ✅ PARSER MIDDLEWARES
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// API ROUTES
-app.use("/api/budgets", budgetRoutes);
+// ✅ HEALTH CHECK ROUTE
+app.get("/", (req, res) => {
+  res.send("🚀 Smart Spending Backend is running!");
+});
+
+// ✅ API ROUTES
 app.use("/api/auth", authRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/budgets", budgetRoutes);
+
+// ✅ GLOBAL ERROR HANDLER (optional safety net)
+app.use((err, req, res, next) => {
+  console.error("Unhandled Error:", err.stack);
+  res.status(500).json({ success: false, message: "Internal Server Error" });
+});
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

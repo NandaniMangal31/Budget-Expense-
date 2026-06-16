@@ -1,4 +1,4 @@
-import { createContext, useState, useMemo } from "react";
+import { createContext, useState, useMemo, useEffect } from "react";
 import jwtDecode from "jwt-decode";
 
 export const AuthContext = createContext();
@@ -29,6 +29,20 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
   });
+
+  // 🔄 Auto logout when token expires
+  useEffect(() => {
+    if (token) {
+      const { exp } = jwtDecode(token);
+      const timeout = exp * 1000 - Date.now();
+      if (timeout > 0) {
+        const timer = setTimeout(() => logout(), timeout);
+        return () => clearTimeout(timer);
+      } else {
+        logout();
+      }
+    }
+  }, [token]);
 
   const login = (authData) => {
     if (!authData?.token) return;
