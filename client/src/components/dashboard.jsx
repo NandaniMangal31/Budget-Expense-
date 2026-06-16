@@ -2,22 +2,24 @@ import { useEffect, useState, useCallback, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import API from "../services/api";
 import ExpenseForm from "./expenseform.jsx";
+import { AuthContext } from "../context/AuthContext";
 
+// Import Custom Modularized Architecture Components
 import BudgetModal from "./BudgetModal";
 import MetricCards from "./MetricCards";
 import CategoryAnalysis from "./CategoryAnalysis";
 import ExpenseLogsTable from "./ExpenseLogsTable";
 import ProfileModal from "./ProfileModal";
-import { AuthContext } from "../context/AuthContext"; // ✅ Added
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { user } = useContext(AuthContext); // ✅ Fixed useContext
+  const { user } = useContext(AuthContext);
   const [expenses, setExpenses] = useState([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false); // Universal scanner loader state
 
+  // BUDGET ENGINE STATES
   const [budgetConfig, setBudgetConfig] = useState({
-    totalBudget: 0,
+    totalBudget: "0",
     categoryTargets: {},
   });
   const [isBudgetFormOpen, setIsBudgetFormOpen] = useState(false);
@@ -56,29 +58,91 @@ export default function Dashboard() {
   const [deletingId, setDeletingId] = useState(null);
 
   // ==========================================
-  // ⚡ AMOUNT PARSER
+  // ⚡ AUTOMATED HYBRID PARSING ENGINE
   // ==========================================
   const parseSafeAmount = (amountVal) => {
     if (amountVal === undefined || amountVal === null) return 0;
+
+    // Clean string notation variables
     let str = amountVal.toString().toLowerCase().replace(/,/g, "").trim();
+    if (str.includes("-")) str = str.split("-")[0].trim();
+
+    let multiplier = 1;
+
+    // Supports both Indian and International System Fallback Reverse Calculations
+    if (str.includes("lakh") || str.includes("lk")) multiplier = 100000;
+    else if (str.includes("crore") || str.includes("cr")) multiplier = 10000000;
+    else if (str.includes("qi")) multiplier = 1e18;
+    else if (str.includes("qa")) multiplier = 1e15;
+    else if (str.includes("t")) multiplier = 1e12;
+    else if (str.includes("b")) multiplier = 1e9;
+    else if (str.includes("m")) multiplier = 1e6;
+    else if (str.includes("k")) multiplier = 1000;
+
+    // Pure cleanup of absolute float
+    str = str.replace(/lakh|lk|crore|cr|qi|qa|t|b|m|k/g, "").trim();
     const val = parseFloat(str);
-    return isNaN(val) ? 0 : val;
+    return isNaN(val) ? 0 : val * multiplier;
   };
 
   // ==========================================
-  // 🎯 FORMATTER
+  // 🎯 THE THREE-IN-ONE HYBRID FORMATTING ENGINE
   // ==========================================
   const formatAdvancedAmount = (amount) => {
     const num = Number(amount);
     if (isNaN(num)) return "₹0.00";
-    return `₹${num.toLocaleString("en-IN", {
+
+    const absNum = Math.abs(num);
+    const sign = num < 0 ? "-" : "";
+
+    // 🚨 Safe Infinity Buffer Shield
+    if (!isFinite(num)) return `${sign}₹Infinite`;
+
+    // 🌍 SYSTEM 1: INTERNATIONAL DECIMAL SYSTEM (For Ultra Massive Edge Numbers)
+    const internationalTiers = [
+      { value: 1e18, symbol: "Qi" }, // Quintillion
+      { value: 1e15, symbol: "Qa" }, // Quadrillion
+      { value: 1e12, symbol: "T" }, // Trillion
+      { value: 1e9, symbol: "B" }, // Billion
+    ];
+
+    for (let i = 0; i < internationalTiers.length; i++) {
+      if (absNum >= internationalTiers[i].value) {
+        const formatted = (absNum / internationalTiers[i].value).toFixed(2);
+        return `${sign}₹${formatted} ${internationalTiers[i].symbol}`;
+      }
+    }
+
+    // 🇮🇳 SYSTEM 2: INDIAN SYSTEM SHORT NOTATION (For Local Corporate Financial Scales)
+    if (absNum >= 1e7) {
+      return `${sign}₹${(absNum / 1e7).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cr`;
+    }
+    if (absNum >= 1e5) {
+      return `${sign}₹${(absNum / 1e5).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Lakh`;
+    }
+
+    // 🔢 SYSTEM 3: STANDARD LEDGER VIEW (For Regular Day-to-Day Expenses)
+    return `${sign}₹${absNum.toLocaleString("en-IN", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })}`;
   };
 
+  // Unified backward mapping logic
+  const formatSingleAdvanced = (numStr, isDollar) => {
+    if (isDollar) {
+      const num = parseSafeAmount(numStr);
+      if (num === 0 && isNaN(Number(numStr))) return numStr;
+      if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
+      if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
+      if (num >= 1e3) return `$${(num / 1e3).toFixed(1)}K`;
+      return `$${Math.round(num)}`;
+    }
+    return formatAdvancedAmount(parseSafeAmount(numStr));
+  };
+
   // ==========================================
-  // 🚀 FETCH DASHBOARD DATA
+  // 🚀 PIPELINE LAYER DATA SYNCING
   // ==========================================
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -90,18 +154,14 @@ export default function Dashboard() {
       if (!currentUserId) return;
 
       try {
-        const resExpenses = await API.get(`/expenses/${currentUserId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resExpenses = await API.get(`/expenses/${currentUserId}`);
         if (resExpenses.data) setExpenses(resExpenses.data);
       } catch (err) {
         console.error(err.message);
       }
 
       try {
-        const resBudget = await API.get(`/budgets/${currentUserId}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const resBudget = await API.get(`/budgets/${currentUserId}`);
         if (resBudget && resBudget.data) {
           setBudgetConfig(resBudget.data);
           setTargetInputs({
@@ -118,7 +178,7 @@ export default function Dashboard() {
             Other: resBudget.data.categoryTargets?.["Other"] || "",
           });
         }
-      } catch {
+      } catch (err) {
         console.log("No targets found.");
       }
     } catch (err) {
@@ -133,111 +193,89 @@ export default function Dashboard() {
   const refreshExpenses = async () => {
     if (!userId) return;
     try {
-      const res = await API.get(`/expenses/${userId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      const res = await API.get(`/expenses/${userId}`);
       if (res.data) setExpenses(res.data);
     } catch (err) {
       console.log(err);
     }
   };
 
-  // ==========================================
-  // 📸 UNIVERSAL FILE SCAN
-  // ==========================================
-  const handleUniversalFileScan = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+const handleUniversalFileScan = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    const allowedMimeTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "application/pdf",
-    ];
-    if (!allowedMimeTypes.includes(file.type)) {
-      alert(`❌ Unsupported File Type (${file.name})`);
-      e.target.value = "";
-      return;
+  const allowedMimeTypes = [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+    "application/rtf",
+    "text/rtf",
+  ];
+
+  const fallbackExtPattern = /\.(xlsx|xls|csv|docx|doc|rtf)$/i;
+  if (!allowedMimeTypes.includes(file.type) && !fallbackExtPattern.test(file.name)) {
+    alert(`❌ Unsupported File Type (${file.name})`);
+    e.target.value = "";
+    return;
+  }
+
+  setUploading(true);
+
+  try {
+    // Use FormData for all uploads so server multer parses consistently
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("userId", userId || (user && user._id) || "");
+
+    const token = localStorage.getItem("token");
+    const endpoint = `${API.defaults.baseURL}/expenses/scan`;
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (res.ok) {
+      alert(data.message || data.msg || "Document processed successfully! 🚀");
+      refreshExpenses();
+    } else {
+      alert(data.message || data.msg || "File parsing failed.");
     }
+  } catch (apiErr) {
+    console.error("API Scanner Error:", apiErr);
+    alert("File parsing failed.");
+  } finally {
+    setUploading(false);
+    e.target.value = "";
+  }
+};
 
-    setUploading(true);
-
-    try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = reader.result;
-        const cleanBase64 = base64String.split(",")[1];
-
-        const savedUser = user || JSON.parse(localStorage.getItem("user"));
-        const userId = savedUser?._id;
-
-        if (!userId) {
-          alert("User ID missing. Please log in again.");
-          setUploading(false);
-          return;
-        }
-
-        const payload = {
-          imageBuffer: cleanBase64,
-          mimeType: file.type || "application/octet-stream",
-          userId,
-          fileName: file.name,
-        };
-
-        try {
-          const res = await API.post("/expenses/scan", payload, {
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          });
-
-          if (res.data?.success) {
-            alert(res.data.msg || "Document processed successfully! 🚀");
-            refreshExpenses();
-          } else {
-            alert("Document processed safely!");
-            refreshExpenses();
-          }
-        } catch (apiErr) {
-          console.error("API Scanner Error:", apiErr);
-          alert(apiErr.response?.data?.msg || "File parsing failed.");
-        } finally {
-          setUploading(false);
-        }
-      };
-
-      reader.readAsDataURL(file);
-    } catch (err) {
-      console.error("FileReader Initialization Error:", err);
-      alert("Failed to initialize file ingestion.");
-      setUploading(false);
-    }
-  };
-
-  // ==========================================
-  // 💾 SAVE BUDGET CONFIG
-  // ==========================================
   const handleSaveBudgetConfig = async () => {
     if (!userId) return;
     try {
       const payload = {
         userId,
-        totalBudget: Number(targetInputs.totalBudget) || 0,
+        totalBudget: targetInputs.totalBudget || "0",
         categoryTargets: {
-          "Food & Drinks": Number(targetInputs["Food & Drinks"]) || 0,
-          "Travel & Transport": Number(targetInputs["Travel & Transport"]) || 0,
-          Shopping: Number(targetInputs["Shopping"]) || 0,
-          "Bills & Utilities": Number(targetInputs["Bills & Utilities"]) || 0,
-          Entertainment: Number(targetInputs["Entertainment"]) || 0,
-          Other: Number(targetInputs["Other"]) || 0,
+          "Food & Drinks": targetInputs["Food & Drinks"] || "0",
+          "Travel & Transport": targetInputs["Travel & Transport"] || "0",
+          Shopping: targetInputs["Shopping"] || "0",
+          "Bills & Utilities": targetInputs["Bills & Utilities"] || "0",
+          Entertainment: targetInputs["Entertainment"] || "0",
+          Other: targetInputs["Other"] || "0",
         },
       };
-      const res = await API.put("/budgets/set", payload, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
-      alert(res.data?.msg || "Budget updated successfully!");
+      const res = await API.post("/budgets/set", payload);
+      alert(res.data?.msg || "Custom budget metrics locked! 🏆");
       setBudgetConfig(payload);
       setIsBudgetFormOpen(false);
     } catch (err) {
@@ -245,17 +283,12 @@ export default function Dashboard() {
     }
   };
 
-  // ==========================================
-  // ❌ DELETE EXPENSE
-  // ==========================================
   const handleDeleteExpense = async (expenseId) => {
     if (!window.confirm("Are you sure you want to delete this expense?"))
       return;
     try {
       setDeletingId(expenseId);
-      await API.delete(`/expenses/${expenseId}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-      });
+      await API.delete(`/expenses/${expenseId}`);
       setExpenses((prev) => prev.filter((item) => item._id !== expenseId));
       alert("Expense log successfully deleted!");
     } catch (err) {
@@ -266,7 +299,7 @@ export default function Dashboard() {
   };
 
   // ==========================================
-  // 📊 CALCULATED STRUCTS
+  // 📊 CALCULATED IN-MEMORY STRUCTS (RE-POWERED)
   // ==========================================
   const parsedMonthlyBudget = parseSafeAmount(budgetConfig.totalBudget);
   const totalExpenses = expenses.reduce(
@@ -279,10 +312,13 @@ export default function Dashboard() {
     let cat = curr.category || "Other";
     let normalizedCat = cat.trim();
 
-    if (/^bills$/i.test(normalizedCat)) normalizedCat = "Bills & Utilities";
-    else if (/^travel$/i.test(normalizedCat))
+    if (/^bills$/i.test(normalizedCat)) {
+      normalizedCat = "Bills & Utilities";
+    } else if (/^travel$/i.test(normalizedCat)) {
       normalizedCat = "Travel & Transport";
-    else if (/^food$/i.test(normalizedCat)) normalizedCat = "Food & Drinks";
+    } else if (/^food$/i.test(normalizedCat)) {
+      normalizedCat = "Food & Drinks";
+    }
 
     acc[normalizedCat] =
       (acc[normalizedCat] || 0) + parseSafeAmount(curr.amount);
@@ -339,9 +375,6 @@ export default function Dashboard() {
 
   const displayExpenses = expenses.length > 0 ? [...expenses].reverse() : [];
 
-  // ==========================================
-  // JSX RETURN
-  // ==========================================
   return (
     <div className="min-h-screen bg-slate-50 text-slate-600 font-sans flex flex-col antialiased overflow-x-hidden w-full">
       {/* NAVBAR */}
@@ -378,7 +411,7 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* MAIN LAYOUT */}
+      {/* MAIN LAYOUT CONTAINER */}
       <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6 flex-grow box-border">
         {/* BANNER */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap justify-between items-center gap-4">
@@ -399,7 +432,7 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* MODALS */}
+        {/* MODAL WINDOW COMPONENTS */}
         <ProfileModal
           isOpen={isProfileOpen}
           onClose={() => setIsProfileOpen(false)}
@@ -414,6 +447,7 @@ export default function Dashboard() {
         />
 
         {/* AI SMART SCANNER */}
+        {/* AI SMART SCANNER UI BLOCK */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
           <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors group w-full box-border text-center">
             <div className="flex items-center gap-3 text-2xl">
@@ -426,13 +460,15 @@ export default function Dashboard() {
                   ? "Analyzing File & Auto-Categorizing..."
                   : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
               </span>
+              {/* Updated Text Below to avoid false user expectations */}
               <span className="block text-xs text-slate-400 mt-1">
-                Accepts Image (JPG, JPEG, PNG, WebP) or PDF receipts
+                Accepts image, PDF, Excel, CSV, Word, RTF, and TXT files
               </span>
             </div>
+            {/* Restricting the browser file-picker window options */}
             <input
               type="file"
-              accept="image/jpeg, image/png, image/webp, application/pdf"
+              accept="image/jpeg, image/png, image/webp, application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/msword, application/rtf, text/rtf, text/plain"
               onChange={handleUniversalFileScan}
               className="hidden"
               disabled={uploading}
@@ -443,16 +479,16 @@ export default function Dashboard() {
         {/* MANUAL EXPENSE FORM */}
         <ExpenseForm refresh={refreshExpenses} />
 
-        {/* METRIC CARDS */}
+        {/* METRIC CARDS ROW */}
         <MetricCards
-          totalBudget={budgetConfig.totalBudget || 0}
+          totalBudget={budgetConfig.totalBudget || "0"}
           totalExpenses={totalExpenses}
           remainingBudget={remainingBudget}
           parsedMonthlyBudget={parsedMonthlyBudget}
           formatAdvancedAmount={formatAdvancedAmount}
         />
 
-        {/* CATEGORY + LOGS */}
+        {/* COMPACT STABLE MATRIX TRACKER */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start w-full">
           <div className="lg:col-span-2 w-full">
             <CategoryAnalysis
