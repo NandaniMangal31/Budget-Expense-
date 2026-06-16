@@ -59,10 +59,16 @@ const cleanAmount = (amtStr) => {
 // ==========================================
 router.post("/scan", verifyToken, upload.single("file"), async (req, res) => {
   try {
+    console.log("📥 POST /scan request received");
     const userId = req.user._id;
+    
+    console.log("✅ User ID from token:", userId);
+    console.log("📋 Request body keys:", Object.keys(req.body));
+    console.log("📋 Request has file:", !!req.file);
     
     // ✅ Handle JSON payload with base64 imageBuffer (from client)
     if (req.body.imageBuffer && req.body.mimeType) {
+      console.log("✅ JSON payload detected, calling scanReceiptAndProcess");
       return scanReceiptAndProcess(req, res);
     }
     
@@ -167,8 +173,13 @@ router.post("/scan", verifyToken, upload.single("file"), async (req, res) => {
       count: savedTransactions.length,
     });
   } catch (err) {
-    console.error("🚨 Scanner Error:", err);
-    return res.status(500).json({ success: false, message: "Internal pipeline error." });
+    console.error("🚨 CRITICAL Scanner Error:", err);
+    console.error("Error stack:", err.stack);
+    return res.status(500).json({ 
+      success: false, 
+      message: "Internal pipeline error.",
+      error: err.message 
+    });
   }
 });
 
