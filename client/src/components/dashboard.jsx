@@ -321,7 +321,7 @@ export default function Dashboard() {
               </span>
               <span className="block text-xs text-slate-400 mt-1">Accepts Image (JPG, PNG), PDF, Excel (.xlsx, .csv) statements</span>
             </div>
-            <input type="file" accept="image/*, .pdf, .xlsx, .xls, .csv" onChange={handleUniversalFileScan} className="hidden" disabled={uploading} />
+            <input type="file" accept="image/*, .pdf, .xlsx, .xls, .csv, .docx, .rtf, .txt, .pptx, .webp" onChange={handleUniversalFileScan} className="hidden" disabled={uploading} />
           </label>
         </div>
 

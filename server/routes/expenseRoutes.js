@@ -7,7 +7,9 @@ import Expense from "../models/Expense.js";
 import User from "../models/User.js";
 import sendEmail from "../utils/sendemail.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
+import mammoth from "mammoth"; // 🚀 Imported for MS Word documents parsing
 import { createRequire } from "module";
+
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
 
@@ -17,6 +19,17 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 } // 25MB Limit
 });
+
+// ==========================================
+// 🧼 NATIVE RTF TAGS AND METADATA CLEANER
+// ==========================================
+function cleanRTFToText(rtfStr) {
+  // Removes internal RTF layout tags, control words, and backslashes safely
+  let text = rtfStr.replace(/\\([a-z]{1,32})(-?\d+)? ?/g, "");
+  text = text.replace(/\{[^}]*\}/g, "");
+  text = text.replace(/\s+/g, " ");
+  return text.trim();
+}
 
 // ==========================================
 // 🧠 STRICT EXACT STANDARD CATEGORIZATION
@@ -36,7 +49,6 @@ const autoCategorize = (description) => {
     return "Bills & Utilities";
   }
 
-  // Exact standard strings matching frontend dropdowns
   if (/zomato|swiggy|restaurant|hotel|food|cafe|mcdonald|starbucks|blinkit|zepto|instamart|eat|canteen|dinner|lunch|breakfast|bakery|diner|dining/i.test(desc)) {
     return "Food & Drinks";
   }
@@ -82,7 +94,6 @@ const cleanAmount = (amtStr) => {
 // ==========================================
 const cleanDescription = (text) => {
   let clean = text.replace(/^[^a-zA-Z0-9]*|[^a-zA-Z0-9]*$/g, '').trim();
-  // Standardize generic terms to full descriptive names
   if (/^food$/i.test(clean)) return "Food & Drinks Expense";
   if (/^travel$/i.test(clean)) return "Travel & Transport";
   if (/^bill$/i.test(clean)) return "Utilities Bill";
@@ -93,6 +104,7 @@ const cleanDescription = (text) => {
 // 🚀 UNIVERSAL SMART SCANNER ENDPOINT
 // ==========================================
 router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) => {
+  
   try {
     const userId = req.user._id;
     if (!req.file) {
@@ -102,6 +114,7 @@ router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) 
     const mimeType = req.file.mimetype;
     const fileName = req.file.originalname.toLowerCase();
     let rawTransactions = [];
+    let extractedText = "";
 
     // 📸 OPTION A: IMAGE SCANNER
     if (mimeType.startsWith("image/")) {
@@ -222,7 +235,60 @@ router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) 
         req.body.mimeType = "application/pdf";
         return scanReceiptAndProcess(req, res);
       }
-    } else {
+    }
+
+    // 📝 🚀 OPTION D: MULTI-DOCUMENT TEXT ENGINE FOR SEPARATE LOGS (.txt, .docx, .rtf)
+    else if (
+      fileName.endsWith(".rtf") || 
+      fileName.endsWith(".txt") || 
+      fileName.endsWith(".docx") || 
+      fileName.endsWith(".doc") ||
+      mimeType.includes("text") || 
+      mimeType.includes("word") || 
+      mimeType.includes("rtf") ||
+      mimeType.includes("octet-stream") // 🔥 Caught browser fallback signature
+    ) {
+      try {
+        // 🔥 Isolated Block 1: Rich Text Format (.rtf) using Built-in native cleaner function
+        // Isko top par rakha hai taaki extension check pehle execute ho
+        if (fileName.endsWith(".rtf") || mimeType.includes("rtf")) {
+          console.log("🚀 Custom Interceptor: Processing independent .rtf natively...");
+          const rtfRawString = req.file.buffer.toString("utf-8");
+          extractedText = cleanRTFToText(rtfRawString);
+        } 
+        // Isolated Block 2: Word Processing files (.docx / .doc)
+        else if (fileName.endsWith(".docx") || fileName.endsWith(".doc") || mimeType.includes("word")) {
+          console.log("Processing independent .docx word stream variables...");
+          const docxResult = await mammoth.extractRawText({ buffer: req.file.buffer });
+          extractedText = docxResult.value;
+        } 
+        // Isolated Block 3: Plain Notepad files (.txt)
+        else {
+          console.log("Processing independent .txt native string conversion...");
+          extractedText = req.file.buffer.toString("utf-8");
+        }
+
+        // Content validation guard
+        if (!extractedText || extractedText.trim().length === 0) {
+          return res.status(400).json({ success: false, message: "Uploaded document appears empty or corrupt." });
+        }
+
+        // Convert clean raw text block variables into base64 format for safe AI processing stream
+        const textBase64 = Buffer.from(extractedText).toString("base64");
+        req.body.imageBuffer = textBase64;
+        req.body.mimeType = "text/plain"; // Strict override for AI Engine
+
+        console.log(`🚀 Isolated text document (${fileName}) parsed successfully. Relaying straight to AI controller payload.`);
+        return scanReceiptAndProcess(req, res);
+
+      } catch (docErr) {
+        console.error("🚨 Text Document Component Core Error:", docErr);
+        return res.status(400).json({ success: false, message: "Structural extraction failed on text document parser." });
+      }
+    }
+    
+    // EXCEPTION TRAP
+    else {
       return res.status(400).json({ success: false, message: "Unsupported file layout format uploaded." });
     }
 
