@@ -157,12 +157,14 @@ export const getExpenses = async (req, res) => {
       .json({ msg: "Database query execution error.", error: err.message });
   }
 };
+
 const cleanBase64ForGemini = (base64DataUrl) => {
   if (base64DataUrl.includes(";base64,")) {
     return base64DataUrl.split(";base64,")[1].trim();
   }
   return base64DataUrl.trim();
 };
+
 // 3. 📸 AI SCAN RECEIPT & PROCESS
 export const scanReceiptAndProcess = async (req, res) => {
   try {
@@ -228,66 +230,54 @@ export const scanReceiptAndProcess = async (req, res) => {
       ]
     }`;
 
-    // ==========================================
-    // 🧠 HYBRID PLATFORM DATA NORMALIZATION
-    // ==========================================
+    // =========================================================================
+    // 🧼 CRYPTO-CLEAN LAYER FOR MULTIMODAL INGESTION DATA PIPELINE
+    // =========================================================================
     let modelInputContent = [];
 
-    // Base64 clean guard system (Advanced version)
-    let cleanRawBase64 = imageBuffer;
-    if (imageBuffer.includes(";base64,")) {
-      cleanRawBase64 = imageBuffer.split(";base64,")[1];
-    }
-    cleanRawBase64 = cleanRawBase64.replace(/\s/g, ""); // Saari hidden spaces aur newlines saaf karo
+    // Base64 header prefix trimming & string cleanup
+    let cleanRawBase64 = cleanBase64ForGemini(imageBuffer);
+    cleanRawBase64 = cleanRawBase64.replace(/\s/g, ""); // Remove trailing spaces/newlines
 
     // Safely normalize MIME types according to Google API standards
-    let verifiedMimeType = mimeType;
-    if (mimeType === "image/jpg") verifiedMimeType = "image/jpeg"; // Gemini strictly wants jpeg, not jpg
+    let verifiedMimeType = mimeType ? mimeType.trim().toLowerCase() : "image/jpeg";
+    if (verifiedMimeType === "image/jpg") verifiedMimeType = "image/jpeg"; 
 
     if (verifiedMimeType === "text/plain") {
       try {
-        const rawStringContent = Buffer.from(cleanRawBase64, "base64").toString(
-          "utf-8",
-        );
-        console.log(
-          "Mapping raw text variables stream directly as content prompt...",
-        );
+        const rawStringContent = Buffer.from(cleanRawBase64, "base64").toString("utf-8");
+        console.log("Mapping raw text variables stream directly as content prompt...");
 
         modelInputContent = [
           prompt,
           `Here is the raw document text data content to analyze:\n\n${rawStringContent}`,
         ];
       } catch (textParseErr) {
-        console.error(
-          "Text parsing fallback triggered error:",
-          textParseErr.message,
-        );
+        console.error("Text parsing fallback triggered error:", textParseErr.message);
         return res
           .status(400)
           .json({ msg: "Failed to decode base64 text stream safely." });
       }
     } else {
-      console.log(
-        `Mapping binary buffers to standard multimodal structures for MIME: ${verifiedMimeType}`,
-      );
+      console.log(`Mapping binary buffers to standard multimodal structures for MIME: ${verifiedMimeType}`);
 
-      // 🎯 THE WINNING STRUCTURE: Strictly packaged parts for Google Generative AI
+      // 🎯 THE WINNING STRUCTURE: Strictly packaged parts layout for Gemini API
       modelInputContent = [
         prompt,
         {
           inlineData: {
-            data: cleanRawBase64,
+            data: cleanRawBase64, // Now completely pure Base64 string stream!
             mimeType: verifiedMimeType,
           },
         },
       ];
     }
 
-    // Default structural layout configurations
+    // Default structural layout configurations (Added mandatory 'models/' prefix)
     const supportedModels = [
-      "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-flash",
+      "models/gemini-2.5-flash",
+      "models/gemini-2.0-flash",
+      "models/gemini-1.5-flash",
     ];
 
     let responsePayload;
@@ -409,7 +399,7 @@ export const scanReceiptAndProcess = async (req, res) => {
     // 📊 MONGODB AGGREGATION & NOTIFICATIONS
     // ==========================================
     const monthlyBudgetCap = 10000;
-    const objectId = new mongoose.Types.ObjectId(String(userId)); // Safe Typecasted reference
+    const objectId = new mongoose.Types.ObjectId(String(userId)); 
 
     const rawAggregatedSums = await Expense.aggregate([
       { $match: { userId: objectId } },
@@ -428,7 +418,7 @@ export const scanReceiptAndProcess = async (req, res) => {
     }
 
     return res.status(200).json({
-      success: true, // 🎯 ADDED THIS: Frontend looks for res.data.success!
+      success: true, 
       msg: "AI Document processing complete successfully! 🎉",
       data: savedExpenses,
       summary: {
