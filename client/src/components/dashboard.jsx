@@ -173,30 +173,56 @@ export default function Dashboard() {
     } catch (err) { console.log(err); }
   };
 
+ // ==========================================
+  // 🚀 FIXED: AUTOMATED HYBRID PARSING ENGINE (FRONTEND LAYER)
+  // ==========================================
   const handleUniversalFileScan = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     setUploading(true);
-    try {
-      const res = await API.post("/expenses/scan", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
 
-      if (res.data && res.data.success) {
-        alert(res.data.message || "Document processed and categorized successfully! 🚀");
-        refreshExpenses();
-      } else {
-        alert("Document processed safely!");
-        refreshExpenses();
-      }
+    try {
+      // 💾 FILE TO BASE64 CONVERSION HANDLER
+      const reader = new FileReader();
+      
+      reader.onloadend = async () => {
+        const base64String = reader.result; // Yeh dega: "data:image/png;base64,..."
+
+        // 🔥 Match backend payload requirement exactly!
+        const payload = {
+          imageBuffer: base64String, // Render controller ab isko easily destructure kar lega
+          mimeType: file.type || "application/octet-stream",
+          fileName: file.name
+        };
+
+        try {
+          // POST Request with clean JSON payload structure
+          const res = await API.post("/expenses/scan", payload, {
+            headers: { "Content-Type": "application/json" }
+          });
+
+          if (res.data && res.data.success) {
+            alert(res.data.message || "Document processed and categorized successfully! 🚀");
+            refreshExpenses();
+          } else {
+            alert("Document processed safely!");
+            refreshExpenses();
+          }
+        } catch (apiErr) {
+          console.error("API Scanner Error:", apiErr);
+          alert(apiErr.response?.data?.message || "File parsing structural validation failed.");
+        } finally {
+          setUploading(false);
+        }
+      };
+
+      // Read file content as base64 data URL
+      reader.readAsDataURL(file);
+
     } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || "File parsing structural validation failed.");
-    } finally {
+      console.error("FileReader Initialization Error:", err);
+      alert("Failed to initialize client-side file ingestion layer.");
       setUploading(false);
     }
   };
