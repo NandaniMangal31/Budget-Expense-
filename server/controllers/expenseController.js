@@ -64,10 +64,13 @@ export const scanReceiptAndProcess = async (req, res) => {
     }
     const genAI = new GoogleGenerativeAI(activeApiKey);
 
-    // Prompt definition (aligned with category enums)
-    const prompt = `ANALYZE TRANSACTION RECORDS AND RETURN JSON.
+    // Strict JSON prompt
+    const prompt = `
+You are an AI that must ONLY return valid JSON.
+Do not include explanations, text, or markdown.
 Categories must be one of: "Food & Drinks", "Travel & Transport", "Shopping", "Bills & Utilities", "Entertainment", "Other".
-Return ONLY valid JSON in this format:
+
+Return in this format:
 {
   "transactions": [
     {
@@ -77,7 +80,8 @@ Return ONLY valid JSON in this format:
       "itemCount": 2
     }
   ]
-}`;
+}
+`;
 
     const modelInputContent = [
       prompt,
@@ -108,21 +112,24 @@ Return ONLY valid JSON in this format:
     let rawTextOutput = responsePayload.response.text().trim();
     console.log("Gemini raw output:", rawTextOutput);
 
-    // Parse JSON safely
+    // Safe JSON parse
     let extractedPayload;
     try {
       let sanitizedText = rawTextOutput.replace(/```json|```/g, "").trim();
+      // If Gemini adds text before JSON, cut everything before first {
+      const firstBrace = sanitizedText.indexOf("{");
+      if (firstBrace > 0) sanitizedText = sanitizedText.slice(firstBrace);
       extractedPayload = JSON.parse(sanitizedText);
     } catch (jsonError) {
-      console.error("AI JSON Parse Error:", jsonError.message, rawTextOutput);
-      return res.status(500).json({ msg: "AI returned invalid JSON.", error: jsonError.message });
+      console.error("AI JSON Parse Error:", jsonError.message);
+      return res.status(500).json({ msg: "AI returned invalid JSON.", raw: rawTextOutput });
     }
 
     if (!Array.isArray(extractedPayload.transactions)) {
       return res.status(400).json({ msg: "AI response missing transactions array." });
     }
 
-    // 💾 Save transactions
+    // Save transactions
     const savedExpenses = [];
     for (const transaction of extractedPayload.transactions) {
       try {
@@ -150,23 +157,6 @@ Return ONLY valid JSON in this format:
       return res.status(400).json({ msg: "No valid transactions parsed." });
     }
 
-    // 📊 Aggregation
-    const rawAggregatedSums = await Expense.aggregate([
-      { $match: { userId: String(userId) } },
-      { $group: { _id: null, totalSpent: { $sum: "$amount" } } },
-    ]);
-
-    const finalAccumulatedTotal = rawAggregatedSums[0]?.totalSpent || 0;
-    const monthlyBudgetCap = 10000; // ⚠️ Replace with dynamic budget later
-    const consumptionRatioPercent = (finalAccumulatedTotal / monthlyBudgetCap) * 100;
-
-    let systemAlertNotification = null;
-    if (consumptionRatioPercent >= 100) {
-      systemAlertNotification = `🛑 Alert! Budget fully used (₹${finalAccumulatedTotal}).`;
-    } else if (consumptionRatioPercent >= 80) {
-      systemAlertNotification = `⚠️ Warning! 80% of budget consumed.`;
-    }
-
     return res.status(200).json({
       success: true,
       msg: "AI Document processed successfully!",
@@ -176,10 +166,10 @@ Return ONLY valid JSON in this format:
         totalAmount: savedExpenses.reduce((sum, exp) => sum + exp.amount, 0),
         categories: [...new Set(savedExpenses.map((exp) => exp.category))],
       },
-      alert: systemAlertNotification,
     });
   } catch (error) {
     console.error("Gemini Processing Error:", error);
     return res.status(500).json({ msg: "AI scanning failed.", error: error.message });
   }
 };
+

@@ -1,7 +1,7 @@
 import Expense from "../models/Expense.js";
 import Budget from "../models/Budget.js";
 import User from "../models/User.js";
-import sendEmail from "./sendEmail.js";
+import sendEmail from "./sendemail.js";
 
 export const checkBudgetThresholds = async (userId, category, amountAdded) => {
   try {
