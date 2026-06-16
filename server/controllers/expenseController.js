@@ -114,6 +114,7 @@ Return ONLY valid JSON in this format:
       let sanitizedText = rawTextOutput.replace(/```json|```/g, "").trim();
       extractedPayload = JSON.parse(sanitizedText);
     } catch (jsonError) {
+      console.error("AI JSON Parse Error:", jsonError.message, rawTextOutput);
       return res.status(500).json({ msg: "AI returned invalid JSON.", error: jsonError.message });
     }
 
