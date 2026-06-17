@@ -1,4 +1,3 @@
-
 export default function ExpenseLogsTable({ 
   displayExpenses, 
   getCategoryStyles, 
@@ -8,8 +7,6 @@ export default function ExpenseLogsTable({
 }) {
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs flex flex-col h-[430px] w-full overflow-hidden box-border">
-      
-      {/* HEADER SECTION */}
       <div className="p-5 border-b border-slate-100 bg-white shrink-0">
         <div className="flex justify-between items-center">
           <div>
@@ -22,10 +19,8 @@ export default function ExpenseLogsTable({
         </div>
       </div>
 
-      {/* STABLE DATA TABLE STRUCTURE */}
-      <div className="flex-grow overflow-y-auto overflow-x-auto w-full custom-scrollbar bg-slate-50/30">
+      <div className="flex-grow overflow-y-auto overflow-x-auto w-full bg-slate-50/30">
         <table className="w-full border-collapse text-left table-fixed min-w-[300px]">
-          {/* STRICT MATHEMATICAL GRID RATIOS */}
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50 sticky top-0 z-10 select-none">
               <th className="w-[40%] text-[10px] font-black text-slate-400 tracking-wider py-3 px-4 uppercase">Description</th>
@@ -49,8 +44,6 @@ export default function ExpenseLogsTable({
 
                 return (
                   <tr key={item._id} className="hover:bg-slate-50/80 transition-colors group">
-                    
-                    {/* DESCRIPTION CELL (SHIELDED TO PREVENT TEXT OVERFLOW) */}
                     <td className="py-3.5 px-4 align-middle">
                       <div className="flex flex-col min-w-0 max-w-full">
                         <span 
@@ -65,7 +58,6 @@ export default function ExpenseLogsTable({
                       </div>
                     </td>
 
-                    {/* CATEGORY TAG CONTAINER */}
                     <td className="py-3.5 px-2 align-middle">
                       <div className="max-w-full truncate">
                         <span className={`inline-block text-[11px] font-bold px-2.5 py-0.5 border rounded-full tracking-wide truncate max-w-full ${colors.bg} ${colors.text}`}>
@@ -74,7 +66,6 @@ export default function ExpenseLogsTable({
                       </div>
                     </td>
 
-                    {/* 🎯 AMOUNT BLOCK (SHIELDED WITH ANTIOVERFLOW PROPERTIES) */}
                     <td className="py-3.5 px-4 text-right align-middle relative whitespace-nowrap min-w-[100px]">
                       <div className="flex items-center justify-end gap-2 group-hover:translate-x-[-28px] transition-transform duration-200 min-w-0 w-full">
                         <span 
@@ -85,19 +76,16 @@ export default function ExpenseLogsTable({
                         </span>
                       </div>
 
-                      {/* 🎯 HOVER SLIDE DELETE ENGINE WITH CLICK PROTECTION SHIELD */}
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all duration-200 z-20 pointer-events-none group-hover:pointer-events-auto">
                         <button
                           onClick={() => onDeleteExpense(item._id)}
                           disabled={deletingId === item._id}
                           className="p-1.5 bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 rounded-lg cursor-pointer transition-colors font-bold text-[10px]"
-                          title="Delete permanently"
                         >
                           {deletingId === item._id ? "..." : "🗑️"}
                         </button>
                       </div>
                     </td>
-
                   </tr>
                 );
               })
@@ -111,7 +99,6 @@ export default function ExpenseLogsTable({
           </tbody>
         </table>
       </div>
-
     </div>
   );
 }

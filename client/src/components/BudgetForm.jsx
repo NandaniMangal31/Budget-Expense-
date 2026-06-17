@@ -32,7 +32,7 @@ export default function BudgetForm({ userId, onBudgetUpdated }) {
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm mb-6 max-w-2xl mx-auto">
+    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm mb-6 max-w-2xl mx-auto w-full box-border">
       <h3 className="text-lg font-bold text-slate-900 m-0 mb-1">🎯 Customize Your Financial Targets</h3>
       <p className="text-xs text-slate-500 m-0 mb-4">Set your total monthly cap and map out limits for specific categories (Supports Lakh, Cr phrases).</p>
       
@@ -44,26 +44,32 @@ export default function BudgetForm({ userId, onBudgetUpdated }) {
         
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-slate-600">🍔 Food Target</label>
-          <input type="text" placeholder="e.g., 10000" value={foodTarget} onChange={(e)=>setFoodTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
+          <input type="text" placeholder="e.g., 10000" value={foodTarget} onChange={(e)=>setFoodTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none focus:border-blue-500"/>
         </div>
 
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold text-slate-600">乘坐 Travel Target</label>
-          <input type="text" placeholder="e.g., 5000" value={travelTarget} onChange={(e)=>setTravelTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
+          <label className="text-xs font-semibold text-slate-600">🚌 Travel Target</label>
+          <input type="text" placeholder="e.g., 5000" value={travelTarget} onChange={(e)=>setTravelTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none focus:border-blue-500"/>
         </div>
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-slate-600">🛍️ Shopping Target</label>
-          <input type="text" placeholder="e.g., 15000" value={shoppingTarget} onChange={(e)=>setShoppingTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
+          <input type="text" placeholder="e.g., 15000" value={shoppingTarget} onChange={(e)=>setShoppingTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none focus:border-blue-500"/>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-slate-600">🧾 Bills & Utilities Target</label>
+          <input type="text" placeholder="e.g., 8000" value={billsTarget} onChange={(e)=>setBillsTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none focus:border-blue-500"/>
         </div>
 
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-slate-600">🎬 Entertainment Target</label>
-          <input type="text" placeholder="e.g., 4000" value={entTarget} onChange={(e)=>setEntTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
+          <input type="text" placeholder="e.g., 4000" value={entTarget} onChange={(e)=>setEntTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none focus:border-blue-500"/>
         </div>
+
         <div className="flex flex-col gap-1">
           <label className="text-xs font-semibold text-slate-600">📦 Other Target</label>
-          <input type="text" placeholder="e.g., 10000" value={otherTarget} onChange={(e)=>setOtherTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none"/>
+          <input type="text" placeholder="e.g., 10000" value={otherTarget} onChange={(e)=>setOtherTarget(e.target.value)} className="px-3 py-2 text-sm border rounded-md outline-none focus:border-blue-500"/>
         </div>
       </div>
       

@@ -1,7 +1,6 @@
 export default function MetricCards({ totalBudget, totalExpenses, remainingBudget, parsedMonthlyBudget, formatAdvancedAmount }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {/* Monthly Allocation */}
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider m-0">Monthly Allocation</p>
         <p className="text-xl md:text-2xl font-extrabold text-slate-900 my-1 truncate">
@@ -13,7 +12,6 @@ export default function MetricCards({ totalBudget, totalExpenses, remainingBudge
         <div className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-600 w-fit mt-2">🎯 Self-Configured</div>
       </div>
 
-      {/* Total Expenses */}
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider m-0">Total Expenses</p>
         <p className="text-xl md:text-2xl font-extrabold text-slate-900 my-1 truncate">
@@ -25,7 +23,6 @@ export default function MetricCards({ totalBudget, totalExpenses, remainingBudge
         <div className="text-xs font-semibold px-2 py-0.5 rounded bg-red-50 text-red-600 w-fit mt-2">💸 Outgoing Logs</div>
       </div>
 
-      {/* Remaining Balance */}
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <p className="text-xs font-bold text-slate-400 uppercase tracking-wider m-0">Remaining Balance</p>
         <p className={`text-xl md:text-2xl font-extrabold my-1 truncate ${remainingBudget < 0 ? "text-red-600" : "text-emerald-600"}`}>

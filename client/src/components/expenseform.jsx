@@ -2,22 +2,17 @@ import { useState } from "react";
 import API from "../services/api";
 
 export default function ExpenseForm({ refresh }) {
-  // Preserved original core states for manual logging mode
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("Food");
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]); // Defaults to today's date
+  const [category, setCategory] = useState("Food & Drinks");
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
 
-  // STANDARD MANUAL EXECUTION METHOD
   const addExpense = async () => {
     if (!amount || !description) {
       alert("Please fill out the Amount and Description fields.");
       return;
     }
 
-    // 🎯 SMART FRONTEND VALIDATION LOCK
-    // Allows numbers, decimal points, spaces, ranges, and words like Lakh, Cr, Million, K, etc.
-    // Strictly blocks negative signs (- at start) and malicious symbols (+, *, $, @, etc.)
     const flexibleAmountRegex = /^[0-9.]+(\s*(lakh|lk|crore|cr|m|k))?(\s*-\s*[0-9.]+(\s*(lakh|lk|crore|cr|m|k))?)?$/i;
     
     if (!flexibleAmountRegex.test(amount.trim())) {
@@ -32,7 +27,6 @@ export default function ExpenseForm({ refresh }) {
         return;
       }
 
-      // 🚀 CRITICAL FIX: Clean input string payload passed directly to match backend text structure
       await API.post("/expenses/add", {
         amount: amount.trim(), 
         description: description.trim(),
@@ -42,29 +36,24 @@ export default function ExpenseForm({ refresh }) {
 
       setAmount("");
       setDescription("");
-      setCategory("Food");
+      setCategory("Food & Drinks");
       setDate(new Date().toISOString().split('T')[0]);
 
       alert("Expense successfully added! 🎉");
-      
       if (refresh) refresh();
 
     } catch (error) {
       console.error("Form Submission Failure Error:", error);
-      alert(error.response?.data?.msg || "Failed to log expense log.");
+      alert(error.response?.data?.msg || "Failed to log expense.");
     }
   };
 
-  // AMOUNT KEYSTROKE FILTER: Input level filter to allow safe notation but block script injects/negatives
   const handleAmountKeyDown = (e) => {
-    // Basic structural keys needed for navigation
     const allowedKeys = ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "Tab", " ", "-", "."];
-    
-    // Only numbers and letters (for lakh, cr, m, k shorthand) are valid character inputs
     const isAlphaNumeric = /[a-zA-Z0-9]/.test(e.key);
 
-  	if (!isAlphaNumeric && !allowedKeys.includes(e.key)) {
-      e.preventDefault(); // Script vectors and malicious codes blocked instantly!
+    if (!isAlphaNumeric && !allowedKeys.includes(e.key)) {
+      e.preventDefault();
     }
   };
 
@@ -72,14 +61,12 @@ export default function ExpenseForm({ refresh }) {
     e.preventDefault();
     setAmount("");
     setDescription("");
-    setCategory("Food");
+    setCategory("Food & Drinks");
     setDate(new Date().toISOString().split('T')[0]);
   };
 
   return (
-    <div className="max-w-2xl mx-auto mb-6 font-sans flex flex-col gap-6 box-border W-full">
-      
-      {/* 💸 TRADITIONAL MANUAL ENTRY FORM MODULE ONLY */}
+    <div className="max-w-2xl mx-auto mb-6 font-sans flex flex-col gap-6 box-border w-full">
       <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xl">✍️</span>
@@ -90,13 +77,11 @@ export default function ExpenseForm({ refresh }) {
         </p>
 
         <form onSubmit={(e) => e.preventDefault()} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          
-          {/* Expense Amount Field (Supports custom financial shorthand configurations) */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-slate-600">Expense Amount (₹)</label>
             <input
               type="text"
-              placeholder="e.g., 5 Lakh, 1.5 Cr, 25000, 1 Lakh-2 Lakh"
+              placeholder="e.g., 5 Lakh, 1.5 Cr, 25000"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               onKeyDown={handleAmountKeyDown}
@@ -105,7 +90,6 @@ export default function ExpenseForm({ refresh }) {
             />
           </div>
 
-          {/* Category Dropdown Field */}
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold text-slate-600">Category</label>
             <select 
@@ -113,17 +97,15 @@ export default function ExpenseForm({ refresh }) {
               onChange={(e) => setCategory(e.target.value)}
               className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-md text-slate-900 bg-white outline-none cursor-pointer box-border"
             >
-              <option value="Food">🍔 Food & Drinks</option>
+              <option value="Food & Drinks">🍔 Food & Drinks</option>
               <option value="Travel & Transport">🚌 Travel & Transport</option>
               <option value="Shopping">🛍️ Shopping</option>
-              <option value="Bills & Utilities"> 🧾 Bills & Utilities</option>
+              <option value="Bills & Utilities">🧾 Bills & Utilities</option>
               <option value="Entertainment">🎬 Entertainment</option>
               <option value="Other">📦 Other</option>
-              <option value="Total Amount">💰 Direct Total (Lump-sum)</option>
             </select>
           </div>
 
-          {/* Description Field */}
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <label className="text-xs font-semibold text-slate-600">Description</label>
             <input
@@ -136,7 +118,6 @@ export default function ExpenseForm({ refresh }) {
             />
           </div>
 
-          {/* Date Field */}
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <label className="text-xs font-semibold text-slate-600">Date of Expense</label>
             <input
@@ -148,7 +129,6 @@ export default function ExpenseForm({ refresh }) {
             />
           </div>
 
-          {/* Form Interactive Action Control Row */}
           <div className="sm:col-span-2 flex justify-end gap-3 mt-2">
             <button 
               type="button" 
@@ -165,10 +145,8 @@ export default function ExpenseForm({ refresh }) {
               ✨ Add Expense
             </button>
           </div>
-
         </form>
       </div>
-
     </div>
   );
 }

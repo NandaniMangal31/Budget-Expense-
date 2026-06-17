@@ -1,73 +1,85 @@
-import { createContext, useState } from "react";
+import { createContext, useState, useEffect, useCallback, useMemo } from "react";
+import API from "../services/api"; // Assuming this is your axios instance
 
-export const AuthContext = createContext();
+export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
-  // 🎯 REFRESH FIX: Page refresh hone par local storage se initial state safely uthao
+  // Safe lazy initializer for User
   const [user, setUser] = useState(() => {
     try {
       const savedUser = localStorage.getItem("user");
-      // Safe check to avoid 'undefined' string crash
-      if (savedUser && savedUser !== "undefined") {
-        return JSON.parse(savedUser);
-      }
+      return savedUser && savedUser !== "undefined" ? JSON.parse(savedUser) : null;
     } catch (e) {
-      console.error("User storage parse error on mobile:", e);
+      console.error("User storage parse error on initialization:", e);
+      return null;
     }
-    return null;
   });
 
+  // Safe lazy initializer for Token
   const [token, setToken] = useState(() => {
     try {
       const savedToken = localStorage.getItem("token");
       return savedToken && savedToken !== "undefined" ? savedToken : null;
     } catch (e) {
+      console.error("Token storage parse error on initialization:", e);
       return null;
     }
   });
 
-  // 📝 LOG IN & REGISTER PIPELINE (FIXED FOR MOBILE STORAGE GAP)
-  const login = (authData) => {
-    if (!authData || !authData.token) {
-      console.error("Auth Data valid nahi hai bhai!");
+  // Automatically sync token with Axios defaults whenever it changes
+  useEffect(() => {
+    if (token) {
+      API.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+    } else {
+      delete API.defaults.headers.common["Authorization"];
+    }
+  }, [token]);
+
+  // Memoized login to prevent downstream re-renders
+  const login = useCallback((authData) => {
+    if (!authData?.token) {
+      console.error("Auth Data is missing critical token configuration.");
       return;
     }
 
-    const { token, user: userData } = authData;
+    const { token: newToken, user: userData } = authData;
 
     try {
-      // 1. Pehle local storage mein completely commit (write) karein
-      localStorage.setItem("token", token);
+      localStorage.setItem("token", newToken);
       localStorage.setItem("user", JSON.stringify(userData));
-
-      // 2. Uske baad state update karein taaki synchronization gap na aaye
-      setToken(token);
-      setUser(userData);
-      
-      console.log("🎯 Mobile authentication saved and state synchronized successfully!");
     } catch (storageError) {
-      console.error("Mobile Private Browsing storage restriction active:", storageError);
-      
-      // Fallback: Agar storage lock hai (Safari Private Mode), toh memory state se kaam chalayein
-      setToken(token);
-      setUser(userData);
+      console.warn("Storage write restricted (e.g., Private Browsing mode). Falling back to memory state:", storageError);
     }
-  };
 
-  // 🚪 LOGOUT FUNCTION PIPELINE
-  const logout = () => {
+    // Always update React state, even if localStorage fails
+    setToken(newToken);
+    setUser(userData);
+  }, []);
+
+  // Memoized logout
+  const logout = useCallback(() => {
     try {
       localStorage.removeItem("token");
       localStorage.removeItem("user");
+      localStorage.clear(); // Safe clean-up
     } catch (e) {
       console.error("Clear storage error:", e);
     }
     setUser(null);
     setToken(null);
-  };
+  }, []);
+
+  // Memoize the value object so listeners don't re-render unless values actually change
+  const contextValue = useMemo(() => ({
+    user,
+    token,
+    login,
+    logout,
+    isAuthenticated: !!token
+  }), [user, token, login, logout]);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

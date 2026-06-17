@@ -9,15 +9,15 @@ const userSchema = new mongoose.Schema({
   email: { 
     type: String, 
     required: true, 
-    unique: true, // 🎯 HAREK USER KE LIYE LOCK: Yeh line har user ke liye duplicate email block karegi
-    trim: true,   // Extra spaces ko remove karne ke liye
-    lowercase: true // Taaki 'Yashi@' aur 'yashi@' ko same mana jaye
+    unique: true, 
+    trim: true,   
+    lowercase: true 
   },
   password: { 
     type: String, 
     required: true 
   }
-}, { timestamps: true }); // Isse user kab bana, uska time bhi track hoga
+}, { timestamps: true });
 
 const User = mongoose.model("User", userSchema);
 export default User;

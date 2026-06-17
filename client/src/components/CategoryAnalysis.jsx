@@ -36,7 +36,7 @@ export default function CategoryAnalysis({ expenses, categoryTotals, totalExpens
                 </div>
                 
                 {isBreached && (
-                  <p className="text-[10px] text-red-500 font-semibold m-0 mt-0.5 animate-pulse">⚠️ Allocation breached!</p>
+                  <p className="text-[10px] text-red-500 font-semibold m-0 mt-0.5">⚠️ Allocation breached!</p>
                 )}
               </div>
             );
