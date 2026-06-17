@@ -49,9 +49,12 @@ export default function Dashboard() {
   // Extract static user metadata safely outside state cycles
   const cachedUser = useMemo(() => getStoredUser(), []);
   const userId = cachedUser?._id || "";
-  const userMetadata = useMemo(() => ({
-    name: cachedUser?.name || "User"
-  }), [cachedUser]);
+  const userMetadata = useMemo(
+    () => ({
+      name: cachedUser?.name || "User",
+    }),
+    [cachedUser],
+  );
 
   // ==========================================
   // ⚡ AUTOMATED HYBRID PARSING ENGINE
@@ -132,7 +135,7 @@ export default function Dashboard() {
       // Execute data queries concurrently
       const [resExpenses, resBudget] = await Promise.allSettled([
         API.get(`/expenses/${currentUserId}`),
-        API.get(`/budgets/${currentUserId}`)
+        API.get(`/budgets/${currentUserId}`),
       ]);
 
       if (resExpenses.status === "fulfilled" && resExpenses.value.data) {
@@ -145,9 +148,11 @@ export default function Dashboard() {
         setTargetInputs({
           totalBudget: budgetData.totalBudget || "",
           "Food & Drinks": budgetData.categoryTargets?.["Food & Drinks"] || "",
-          "Travel & Transport": budgetData.categoryTargets?.["Travel & Transport"] || "",
+          "Travel & Transport":
+            budgetData.categoryTargets?.["Travel & Transport"] || "",
           Shopping: budgetData.categoryTargets?.["Shopping"] || "",
-          "Bills & Utilities": budgetData.categoryTargets?.["Bills & Utilities"] || "",
+          "Bills & Utilities":
+            budgetData.categoryTargets?.["Bills & Utilities"] || "",
           Entertainment: budgetData.categoryTargets?.["Entertainment"] || "",
           Other: budgetData.categoryTargets?.["Other"] || "",
         });
@@ -160,6 +165,21 @@ export default function Dashboard() {
   useEffect(() => {
     fetchDashboardData();
   }, [fetchDashboardData]);
+  // Add a clean initialization function inside your Main Component / Dashboard Layout
+  useEffect(() => {
+    const checkSessionAuthorization = () => {
+      const activeToken = localStorage.getItem("token");
+
+      // 🛡️ Guardrail: If no token exists, send the user back to the login page immediately
+      if (!activeToken) {
+        console.warn("No active token discovered. Routing back to gateway.");
+        localStorage.clear();
+        window.location.href = "/login"; // Updates window matrix down to login gateway route
+      }
+    };
+
+    checkSessionAuthorization();
+  }, []);
 
   const refreshExpenses = async () => {
     if (!userId) return;
@@ -171,60 +191,82 @@ export default function Dashboard() {
     }
   };
 
-const handleUniversalFileScan = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const handleUniversalFileScan = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  const fileExtension = file.name.split('.').pop().toLowerCase();
-  const allowedExtensions = ["jpg", "jpeg", "png", "webp", "pdf", "xlsx", "xls", "csv", "docx", "doc", "rtf", "txt"];
-  
-  if (!allowedExtensions.includes(fileExtension)) {
-    alert(`❌ Unsupported File Type (${file.name})\nPlease upload Images, PDFs, Docs, or Spreadsheets.`);
-    e.target.value = "";
-    return;
-  }
+    const fileExtension = file.name.split(".").pop().toLowerCase();
+    const allowedExtensions = [
+      "jpg",
+      "jpeg",
+      "png",
+      "webp",
+      "pdf",
+      "xlsx",
+      "xls",
+      "csv",
+      "docx",
+      "doc",
+      "rtf",
+      "txt",
+    ];
 
-  setUploading(true);
-  try {
-    const formData = new FormData();
-    // 🔒 Strictly matches your backend Multer upload.single("file") gateway criteria
-    formData.append("file", file);
-
-    // 🪙 Retrieve authorization credentials locally to ensure the user profile is verified
-    const activeToken = localStorage.getItem("token");
-
-    const res = await API.post("/expenses/scan", formData, {
-      headers: { 
-        "Content-Type": "multipart/form-data",
-        // 🛡️ Guardrail: Explicitly injects Bearer credentials if global instance interceptors skip them
-        ...(activeToken && { "Authorization": `Bearer ${activeToken}` })
-      }
-    });
-
-    // 🎯 FIX: Intelligently resolves backend property fields 'msg' or 'message'
-    const serverSuccessOutput = res.data?.msg || res.data?.message || "Document processed successfully!";
-    const totalItemsImported = res.data?.summary?.transactionsScanned || 1;
-
-    alert(`🎉 ${serverSuccessOutput} (Parsed ${totalItemsImported} line items into your ledger)`);
-    
-    if (typeof refreshExpenses === "function") {
-      await refreshExpenses();
+    if (!allowedExtensions.includes(fileExtension)) {
+      alert(
+        `❌ Unsupported File Type (${file.name})\nPlease upload Images, PDFs, Docs, or Spreadsheets.`,
+      );
+      e.target.value = "";
+      return;
     }
-  } catch (apiErr) {
-    console.error("🚨 API Engine Communication Error Trace:", apiErr);
-    
-    // 🎯 FIX: Explicitly extracts backend failure keys ('msg' -> 'message' -> 'error')
-    const serverErrMsg = 
-      apiErr.response?.data?.msg || 
-      apiErr.response?.data?.message || 
-      apiErr.response?.data?.error;
 
-    alert(`❌ Upload Failure: ${serverErrMsg || "File processing execution parameters failed. Verify server cluster log files."}`);
-  } finally {
-    setUploading(false);
-    e.target.value = ""; // Flush the input stream so you can re-upload the same file if needed
-  }
-};
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      // 🔒 Strictly matches your backend Multer upload.single("file") gateway criteria
+      formData.append("file", file);
+
+      // 🪙 Retrieve authorization credentials locally to ensure the user profile is verified
+      const activeToken = localStorage.getItem("token");
+
+      const res = await API.post("/expenses/scan", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          // 🛡️ Guardrail: Explicitly injects Bearer credentials if global instance interceptors skip them
+          ...(activeToken && { Authorization: `Bearer ${activeToken}` }),
+        },
+      });
+
+      // 🎯 FIX: Intelligently resolves backend property fields 'msg' or 'message'
+      const serverSuccessOutput =
+        res.data?.msg ||
+        res.data?.message ||
+        "Document processed successfully!";
+      const totalItemsImported = res.data?.summary?.transactionsScanned || 1;
+
+      alert(
+        `🎉 ${serverSuccessOutput} (Parsed ${totalItemsImported} line items into your ledger)`,
+      );
+
+      if (typeof refreshExpenses === "function") {
+        await refreshExpenses();
+      }
+    } catch (apiErr) {
+      console.error("🚨 API Engine Communication Error Trace:", apiErr);
+
+      // 🎯 FIX: Explicitly extracts backend failure keys ('msg' -> 'message' -> 'error')
+      const serverErrMsg =
+        apiErr.response?.data?.msg ||
+        apiErr.response?.data?.message ||
+        apiErr.response?.data?.error;
+
+      alert(
+        `❌ Upload Failure: ${serverErrMsg || "File processing execution parameters failed. Verify server cluster log files."}`,
+      );
+    } finally {
+      setUploading(false);
+      e.target.value = ""; // Flush the input stream so you can re-upload the same file if needed
+    }
+  };
 
   const handleSaveBudgetConfig = async () => {
     if (!userId) return;
@@ -251,7 +293,8 @@ const handleUniversalFileScan = async (e) => {
   };
 
   const handleDeleteExpense = async (expenseId) => {
-    if (!window.confirm("Are you sure you want to delete this expense?")) return;
+    if (!window.confirm("Are you sure you want to delete this expense?"))
+      return;
     try {
       setDeletingId(expenseId);
       await API.delete(`/expenses/${expenseId}`);
@@ -267,19 +310,19 @@ const handleUniversalFileScan = async (e) => {
   // ==========================================
   // 📊 OPTIMIZED MEMOIZED CALCULATIONS
   // ==========================================
-  const parsedMonthlyBudget = useMemo(() => 
-    parseSafeAmount(budgetConfig.totalBudget), 
-    [budgetConfig.totalBudget, parseSafeAmount]
+  const parsedMonthlyBudget = useMemo(
+    () => parseSafeAmount(budgetConfig.totalBudget),
+    [budgetConfig.totalBudget, parseSafeAmount],
   );
 
-  const totalExpenses = useMemo(() => 
-    expenses.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0),
-    [expenses, parseSafeAmount]
+  const totalExpenses = useMemo(
+    () => expenses.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0),
+    [expenses, parseSafeAmount],
   );
 
-  const remainingBudget = useMemo(() => 
-    parsedMonthlyBudget - totalExpenses, 
-    [parsedMonthlyBudget, totalExpenses]
+  const remainingBudget = useMemo(
+    () => parsedMonthlyBudget - totalExpenses,
+    [parsedMonthlyBudget, totalExpenses],
   );
 
   const categoryTotals = useMemo(() => {
@@ -288,29 +331,68 @@ const handleUniversalFileScan = async (e) => {
       let normalizedCat = cat.trim();
 
       if (/^bills$/i.test(normalizedCat)) normalizedCat = "Bills & Utilities";
-      else if (/^travel$/i.test(normalizedCat)) normalizedCat = "Travel & Transport";
+      else if (/^travel$/i.test(normalizedCat))
+        normalizedCat = "Travel & Transport";
       else if (/^food$/i.test(normalizedCat)) normalizedCat = "Food & Drinks";
 
-      acc[normalizedCat] = (acc[normalizedCat] || 0) + parseSafeAmount(curr.amount);
+      acc[normalizedCat] =
+        (acc[normalizedCat] || 0) + parseSafeAmount(curr.amount);
       return acc;
     }, {});
   }, [expenses, parseSafeAmount]);
 
-  const displayExpenses = useMemo(() => 
-    expenses.length > 0 ? [...expenses].reverse() : [], 
-    [expenses]
+  const displayExpenses = useMemo(
+    () => (expenses.length > 0 ? [...expenses].reverse() : []),
+    [expenses],
   );
 
   const getCategoryStyles = useCallback((categoryName) => {
     const normalized = (categoryName || "").toLowerCase().trim();
-    if (normalized.includes("food & drinks")) return { dot: "bg-blue-500", text: "text-blue-600", bg: "bg-blue-50 border-blue-100" };
-    if (normalized.includes("travel transport") || normalized.includes("transport")) return { dot: "bg-emerald-500", text: "text-emerald-600", bg: "bg-emerald-50 border-emerald-100" };
-    if (normalized.includes("shopping")) return { dot: "bg-purple-500", text: "text-purple-600", bg: "bg-purple-50 border-purple-100" };
-    if (normalized.includes("bill") || normalized.includes("utility")) return { dot: "bg-amber-500", text: "text-amber-600", bg: "bg-amber-50 border-amber-100" };
-    if (normalized.includes("entertainment")) return { dot: "bg-teal-700", text: "text-teal-800", bg: "bg-teal-50 border-teal-100" };
-    if (normalized.includes("other")) return { dot: "bg-pink-500", text: "text-pink-600", bg: "bg-pink-50 border-pink-100" };
-    
-    return { dot: "bg-cyan-500", text: "text-cyan-700", bg: "bg-cyan-100 border-cyan-100" };
+    if (normalized.includes("food & drinks"))
+      return {
+        dot: "bg-blue-500",
+        text: "text-blue-600",
+        bg: "bg-blue-50 border-blue-100",
+      };
+    if (
+      normalized.includes("travel transport") ||
+      normalized.includes("transport")
+    )
+      return {
+        dot: "bg-emerald-500",
+        text: "text-emerald-600",
+        bg: "bg-emerald-50 border-emerald-100",
+      };
+    if (normalized.includes("shopping"))
+      return {
+        dot: "bg-purple-500",
+        text: "text-purple-600",
+        bg: "bg-purple-50 border-purple-100",
+      };
+    if (normalized.includes("bill") || normalized.includes("utility"))
+      return {
+        dot: "bg-amber-500",
+        text: "text-amber-600",
+        bg: "bg-amber-50 border-amber-100",
+      };
+    if (normalized.includes("entertainment"))
+      return {
+        dot: "bg-teal-700",
+        text: "text-teal-800",
+        bg: "bg-teal-50 border-teal-100",
+      };
+    if (normalized.includes("other"))
+      return {
+        dot: "bg-pink-500",
+        text: "text-pink-600",
+        bg: "bg-pink-50 border-pink-100",
+      };
+
+    return {
+      dot: "bg-cyan-500",
+      text: "text-cyan-700",
+      bg: "bg-cyan-100 border-cyan-100",
+    };
   }, []);
 
   return (
@@ -318,15 +400,31 @@ const handleUniversalFileScan = async (e) => {
       {/* NAVBAR */}
       <nav className="bg-white border-b border-slate-200 sticky top-0 z-50 shadow-xs w-full">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 cursor-pointer select-none" onClick={() => navigate("/")}>
-            <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-sm">SBA</div>
-            <span className="font-bold text-lg text-slate-900 tracking-tight">SmartBudget</span>
+          <div
+            className="flex items-center gap-2.5 cursor-pointer select-none"
+            onClick={() => navigate("/")}
+          >
+            <div className="w-8 h-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold text-sm">
+              SBA
+            </div>
+            <span className="font-bold text-lg text-slate-900 tracking-tight">
+              SmartBudget
+            </span>
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
-            <button onClick={() => setIsProfileOpen(true)} className="text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors whitespace-nowrap">
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 transition-colors whitespace-nowrap"
+            >
               👤 <span className="hidden sm:inline">Personal Account</span>
             </button>
-            <button onClick={() => { localStorage.clear(); navigate("/"); }} className="text-sm font-semibold text-red-600 hover:text-red-800 bg-none border-none cursor-pointer transition-colors whitespace-nowrap">
+            <button
+              onClick={() => {
+                localStorage.clear();
+                navigate("/");
+              }}
+              className="text-sm font-semibold text-red-600 hover:text-red-800 bg-none border-none cursor-pointer transition-colors whitespace-nowrap"
+            >
               Sign Out
             </button>
           </div>
@@ -337,49 +435,99 @@ const handleUniversalFileScan = async (e) => {
       <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-6 flex-grow box-border">
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap justify-between items-center gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-bold text-slate-900 m-0">Welcome Back, {userMetadata.name}!</h1>
-            <p className="text-sm text-slate-400 mt-1 m-0">Manage your self-assigned budget allocations and live data trends.</p>
+            <h1 className="text-xl md:text-2xl font-bold text-slate-900 m-0">
+              Welcome Back, {userMetadata.name}!
+            </h1>
+            <p className="text-sm text-slate-400 mt-1 m-0">
+              Manage your self-assigned budget allocations and live data trends.
+            </p>
           </div>
-          <button onClick={() => setIsBudgetFormOpen(!isBudgetFormOpen)} className="text-xs font-bold bg-slate-900 text-white px-4 py-2.5 rounded-lg border-none hover:bg-slate-800 transition-all shadow-xs cursor-pointer flex items-center gap-1.5 whitespace-nowrap">
-            🎯 {isBudgetFormOpen ? "Close Control Panel" : "Setup Manual Budgets"}
+          <button
+            onClick={() => setIsBudgetFormOpen(!isBudgetFormOpen)}
+            className="text-xs font-bold bg-slate-900 text-white px-4 py-2.5 rounded-lg border-none hover:bg-slate-800 transition-all shadow-xs cursor-pointer flex items-center gap-1.5 whitespace-nowrap"
+          >
+            🎯{" "}
+            {isBudgetFormOpen ? "Close Control Panel" : "Setup Manual Budgets"}
           </button>
         </div>
 
-        <ProfileModal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} userMetadata={userMetadata} />
-        <BudgetModal isOpen={isBudgetFormOpen} targetInputs={targetInputs} setTargetInputs={setTargetInputs} onSave={handleSaveBudgetConfig} onClose={() => setIsBudgetFormOpen(false)} />
+        <ProfileModal
+          isOpen={isProfileOpen}
+          onClose={() => setIsProfileOpen(false)}
+          userMetadata={userMetadata}
+        />
+        <BudgetModal
+          isOpen={isBudgetFormOpen}
+          targetInputs={targetInputs}
+          setTargetInputs={setTargetInputs}
+          onSave={handleSaveBudgetConfig}
+          onClose={() => setIsBudgetFormOpen(false)}
+        />
 
         {/* AI SMART SCANNER UI BLOCK */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-2xs">
           <label className="border-2 border-dashed border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors group w-full box-border text-center">
             <div className="flex items-center gap-3 text-2xl">
-              <span>📸</span> <span className="text-slate-300">|</span> <span>📄</span>
+              <span>📸</span> <span className="text-slate-300">|</span>{" "}
+              <span>📄</span>
             </div>
             <div>
               <span className="block text-sm font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
-                {uploading ? "Analyzing File & Auto-Categorizing..." : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
+                {uploading
+                  ? "Analyzing File & Auto-Categorizing..."
+                  : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
               </span>
-              <span className="block text-xs text-slate-400 mt-1">Accepts image, PDF, Excel, CSV, Word, RTF, and TXT files</span>
+              <span className="block text-xs text-slate-400 mt-1">
+                Accepts image, PDF, Excel, CSV, Word, RTF, and TXT files
+              </span>
             </div>
-            <input type="file" accept="image/jpeg, image/png, image/webp, application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/msword, application/rtf, text/rtf, text/plain" onChange={handleUniversalFileScan} className="hidden" disabled={uploading} />
+            <input
+              type="file"
+              accept="image/jpeg, image/png, image/webp, application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/msword, application/rtf, text/rtf, text/plain"
+              onChange={handleUniversalFileScan}
+              className="hidden"
+              disabled={uploading}
+            />
           </label>
         </div>
 
         <ExpenseForm refresh={refreshExpenses} />
 
-        <MetricCards totalBudget={budgetConfig.totalBudget || "0"} totalExpenses={totalExpenses} remainingBudget={remainingBudget} parsedMonthlyBudget={parsedMonthlyBudget} formatAdvancedAmount={formatAdvancedAmount} />
+        <MetricCards
+          totalBudget={budgetConfig.totalBudget || "0"}
+          totalExpenses={totalExpenses}
+          remainingBudget={remainingBudget}
+          parsedMonthlyBudget={parsedMonthlyBudget}
+          formatAdvancedAmount={formatAdvancedAmount}
+        />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start w-full">
           <div className="lg:col-span-2 w-full">
-            <CategoryAnalysis expenses={expenses} categoryTotals={categoryTotals} totalExpenses={totalExpenses} budgetConfig={budgetConfig} parseSafeAmount={parseSafeAmount} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} />
+            <CategoryAnalysis
+              expenses={expenses}
+              categoryTotals={categoryTotals}
+              totalExpenses={totalExpenses}
+              budgetConfig={budgetConfig}
+              parseSafeAmount={parseSafeAmount}
+              getCategoryStyles={getCategoryStyles}
+              formatAdvancedAmount={formatAdvancedAmount}
+            />
           </div>
           <div className="w-full">
-            <ExpenseLogsTable displayExpenses={displayExpenses} getCategoryStyles={getCategoryStyles} formatAdvancedAmount={formatAdvancedAmount} onDeleteExpense={handleDeleteExpense} deletingId={deletingId} />
+            <ExpenseLogsTable
+              displayExpenses={displayExpenses}
+              getCategoryStyles={getCategoryStyles}
+              formatAdvancedAmount={formatAdvancedAmount}
+              onDeleteExpense={handleDeleteExpense}
+              deletingId={deletingId}
+            />
           </div>
         </div>
       </main>
 
       <footer className="text-center p-5 text-xs text-slate-400 border-t border-slate-200 bg-white mt-auto w-full">
-        &copy; {new Date().getFullYear()} Smart Budget Analyzer. Academic Capstone Project.
+        &copy; {new Date().getFullYear()} Smart Budget Analyzer. Academic
+        Capstone Project.
       </footer>
     </div>
   );
