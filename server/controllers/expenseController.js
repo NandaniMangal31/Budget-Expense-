@@ -327,9 +327,6 @@ export const scanReceiptAndProcess = async (req, res) => {
     }
 
     const activeApiKey = getGeminiKey();
-    if (!activeApiKey) {
-      return res.status(500).json({ msg: "Configuration Error: GEMINI_API_KEY is missing." });
-    }
 
     const fileName = req.file?.originalname || "";
     const { text: extractedTextContent, isDocumentFile } = await extractDocumentText(
@@ -352,7 +349,6 @@ export const scanReceiptAndProcess = async (req, res) => {
         : extractedTextContent;
 
     // Configure Context Payload Rules
-    const genAI = new GoogleGenerativeAI(activeApiKey);
     const prompt = `ANALYZE TRANSACTION DATA AND EXTRACT INDIVIDUAL EXPENSES.
 Group expenses cleanly into these exact categories: "Groceries", "Food & Drinks", "Travel & Transport", "Shopping", "Bills & Utilities", "Entertainment", "Other".
 
@@ -388,21 +384,31 @@ Do not add markdown formatting or wrappers. Return ONLY raw JSON.`;
       ];
     }
 
-    // Model orchestration mapping loop
-    let availableModels = await listAvailableModels(activeApiKey);
-    const supportedModels = selectSupportedModels(availableModels);
+    if (!activeApiKey && !isDocumentFile) {
+      return res.status(500).json({
+        msg: "Gemini API key is missing/invalid. Image/PDF scan requires Gemini configuration.",
+      });
+    }
 
     let responsePayload;
     let lastError = null;
 
-    for (const modelName of supportedModels) {
-      try {
-        const model = genAI.getGenerativeModel({ model: modelName });
-        responsePayload = await model.generateContent(modelInputContent);
-        break;
-      } catch (err) {
-        lastError = err;
-        console.warn(`Model ${modelName} failed, executing runtime shift...`);
+    // AI pass is optional for text documents (local parser fallback handles those),
+    // but mandatory for image/PDF scans.
+    if (activeApiKey) {
+      const genAI = new GoogleGenerativeAI(activeApiKey);
+      const availableModels = await listAvailableModels(activeApiKey);
+      const supportedModels = selectSupportedModels(availableModels);
+
+      for (const modelName of supportedModels) {
+        try {
+          const model = genAI.getGenerativeModel({ model: modelName });
+          responsePayload = await model.generateContent(modelInputContent);
+          break;
+        } catch (err) {
+          lastError = err;
+          console.warn(`Model ${modelName} failed, executing runtime shift...`);
+        }
       }
     }
 

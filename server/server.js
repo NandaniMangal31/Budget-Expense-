@@ -21,14 +21,27 @@ const app = express();
  * 🔒 CORS CORS CONFIGURATION POLICY MATRIX
  * Restricts cross-origin resource allocations to explicit client domains only
  */
-app.use(cors({
-  origin: [
-    "https://smart-spending-frontend.vercel.app",
-    "http://localhost:5173",
-    "http://localhost:3000"
-  ],
-  credentials: true
-}));
+const allowedOrigins = [
+  "https://smart-spending-frontend.vercel.app",
+  "http://localhost:3000",
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests from tools/non-browser clients with no Origin header
+      if (!origin) return callback(null, true);
+
+      const isAllowedLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
+      if (allowedOrigins.includes(origin) || isAllowedLocalhost) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("CORS policy: This origin is not allowed."));
+    },
+    credentials: true,
+  }),
+);
 
 /**
  * 🎚️ MEMORY STREAM INBOUND PARSERS

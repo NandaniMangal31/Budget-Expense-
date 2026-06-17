@@ -5,12 +5,18 @@ import axios from "axios";
  * Supports local environment configurations seamlessly
  */
 const getBaseURL = () => {
-  const envUrl = import.meta.env.VITE_API_URL;
-  
+  const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+
+  // In local development, always use local backend to avoid CORS/deploy drift.
+  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    return "http://localhost:5000/api";
+  }
+
   if (envUrl?.trim() && envUrl !== "production") {
     return envUrl;
   }
-  // Academic Render fallback endpoint
+
+  // Production fallback endpoint
   return "https://smart-spending-backend.onrender.com/api";
 };
 
