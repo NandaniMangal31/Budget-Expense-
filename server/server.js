@@ -58,6 +58,13 @@ app.use("/api/budgets", budgetRoutes);
  */
 app.use((err, req, res, next) => {
   console.error("🚨 CRITICAL CORE EXCEPTION INTERCEPTED:", err.stack || err.message || err);
+
+  if (err instanceof SyntaxError && err.status === 400 && err.message.includes('JSON')) {
+    return res.status(400).json({
+      success: false,
+      message: "Malformed JSON payload. Verify the request body is valid JSON."
+    });
+  }
   
   return res.status(500).json({ 
     success: false, 

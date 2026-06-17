@@ -1,7 +1,9 @@
 import axios from "axios";
-import { GoogleGenerativeAI } from "@google/generative-ai"; 
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import mongoose from "mongoose";
 import ExcelJS from "exceljs"; // 📊 Native Spreadsheet Decoder Engine
+import XLSX from "xlsx";
+import { Readable } from "stream"; // feeds CSV buffers into ExcelJS's csv reader
 import mammoth from "mammoth"; // 📝 Native Word Document (.docx) Decoder Engine
 import Expense from "../models/Expense.js";
 import { checkBudgetThresholds } from "../utils/budgetAlertEngine.js";
@@ -49,7 +51,7 @@ const listAvailableModels = async (apiKey) => {
 const autoCategorize = (description) => {
   const desc = (description || "").toLowerCase().trim();
   if (/interest expense|interest/i.test(desc)) return "Other";
-  if (/groceries|grocery|smith\'s|smiths/i.test(desc)) return "Groceries"; 
+  if (/groceries|grocery|smith\'s|smiths/i.test(desc)) return "Groceries";
   if (/credit|beginning balance|balance|account balance/i.test(desc)) return "Bills & Utilities";
   if (/zomato|swiggy|restaurant|hotel|food|cafe|mcdonald|starbucks|blinkit|zepto|instamart|eat|canteen|dinner|lunch|breakfast|bakery|diner|dining/i.test(desc)) return "Food & Drinks";
   if (/uber|ola|rapido|irctc|flight|metro|petrol|fuel|shell|diesel|train|bus|cab|travel|transport|automart|car|bike|garage|auto/i.test(desc)) return "Travel & Transport";
@@ -82,6 +84,195 @@ const selectSupportedModels = (availableModels) => {
     }
   }
   return ordered.length ? ordered : ["models/gemini-2.5-flash"];
+};
+
+// 🧮 LOCAL FALLBACK — scan extracted text line-by-line and build transactions.
+// Used when Gemini is unavailable / rate-limited / returns nothing usable, so
+// docx, txt, xlsx, xls, and csv uploads keep working with proper categorization
+// even without the AI step.
+const parseTransactionsFromRawText = (text) => {
+  const lines = text.split(/\r?\n/);
+  const transactions = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || /^---\s*Sheet:/i.test(line)) continue;
+
+    // Grab every number-looking token in the line (handles "1,250.50", "250", etc.)
+    const numberMatches = line.match(/-?\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?|-?\d+(?:\.\d{1,2})?/g);
+    if (!numberMatches || numberMatches.length === 0) continue;
+
+    const amountToken = numberMatches[numberMatches.length - 1];
+    const amount = Number(amountToken.replace(/,/g, ""));
+    if (!amount || isNaN(amount) || amount <= 0) continue;
+
+    let description = line.replace(amountToken, "").replace(/[,;|]+/g, " ").trim();
+    description = description.replace(/\s{2,}/g, " ") || "Transaction";
+
+    transactions.push({
+      category: autoCategorize(description),
+      description,
+      amount,
+      itemCount: 1,
+    });
+  }
+
+  return transactions;
+};
+
+// 📂 Extract readable text from a non-image/non-pdf document buffer.
+// Returns { text, isDocumentFile }. Spreadsheets, docx, txt/rtf are all
+// converted to plain text here; images/PDFs fall through untouched and
+// get sent to Gemini as binary (inlineData) instead.
+const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
+  const lowerFileName = String(fileName || "").toLowerCase();
+  const isXls = /\.xls$/i.test(lowerFileName);
+  const isXlsx = /\.xlsx$/i.test(lowerFileName);
+  const isCsv = /\.csv$/i.test(lowerFileName);
+  const isDoc = /\.doc$/i.test(lowerFileName);
+
+  const isSpreadsheet =
+    mimeType.includes("spreadsheet") ||
+    mimeType.includes("excel") ||
+    mimeType.includes("csv") ||
+    isXlsx ||
+    isXls ||
+    isCsv;
+
+  const isDocx =
+    mimeType.includes("officedocument.wordprocessingml") || /\.docx$/i.test(fileName);
+
+  const isPlainText =
+    mimeType.includes("msword") ||
+    mimeType.includes("rtf") ||
+    mimeType.includes("text/plain") ||
+    /\.(rtf|txt)$/i.test(fileName) ||
+    isDoc;
+
+  if (isSpreadsheet) {
+    const isCsvFile = mimeType.includes("csv") || isCsv;
+
+    // STRATEGY A — real, modern OOXML .xlsx (and many files saved with a
+    // .xls extension that are actually xlsx under the hood — common from
+    // newer Excel/Sheets exports). Skip this for genuine .csv files since
+    // xlsx.load() always throws on plain delimited text and just wastes time.
+    if (!isCsvFile) {
+      try {
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(finalBuffer);
+        let text = "";
+        workbook.eachSheet((worksheet) => {
+          text += `\n--- Sheet: ${worksheet.name} ---\n`;
+          worksheet.eachRow((row) => {
+            const rowValues = Array.isArray(row.values)
+              ? row.values.slice(1).map((v) => (v && typeof v === "object" ? v.result ?? v.text ?? JSON.stringify(v) : v))
+              : [];
+            text += rowValues.join(", ") + "\n";
+          });
+        });
+        if (text.trim()) {
+          console.log("📊 ExcelJS: Parsed as native XLSX workbook.");
+          return { text, isDocumentFile: true };
+        }
+      } catch (xlsxErr) {
+        console.warn("ExcelJS xlsx.load failed, trying CSV reader:", xlsxErr.message);
+      }
+    }
+
+    // STRATEGY B — true CSV / tab-delimited text, via ExcelJS's own csv
+    // reader (it needs a stream, so we wrap the buffer in a Readable).
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const csvStream = Readable.from(finalBuffer.toString("utf-8"));
+      const worksheet = await workbook.csv.read(csvStream);
+      let text = `\n--- Sheet: ${worksheet.name || "CSV"} ---\n`;
+      worksheet.eachRow((row) => {
+        const rowValues = Array.isArray(row.values) ? row.values.slice(1) : [];
+        text += rowValues.join(", ") + "\n";
+      });
+      if (text.trim().length > 15) {
+        console.log("📊 ExcelJS: Parsed as CSV stream.");
+        return { text, isDocumentFile: true };
+      }
+    } catch (csvErr) {
+      console.warn("ExcelJS csv.read failed, trying HTML/raw-text fallback:", csvErr.message);
+    }
+
+    // STRATEGY C — many bank/web-app "xls" exports are actually HTML tables
+    // wearing an .xls extension. Strip markup so the rows read as plain text.
+    const rawString = finalBuffer.toString("utf-8");
+    if (/<table/i.test(rawString) || /<html/i.test(rawString)) {
+      const text = rawString
+        .replace(/<\/(tr|p|div|br)>/gi, "\n")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/[ \t]{2,}/g, " ");
+      console.log("📊 Detected HTML-formatted spreadsheet export, stripped markup.");
+      return { text, isDocumentFile: true };
+    }
+
+    // STRATEGY D — last resort, raw decode. Note: genuine legacy binary
+    // .xls (Excel 97-2003 BIFF format) cannot be reliably read this way —
+    // ExcelJS doesn't support that format at all, so this will only recover
+    // something usable if the file is actually CSV/HTML/plain text in
+    // disguise, not a true binary .xls.
+    const text = rawString.replace(/[^\x20-\x7E\n\r\t]/g, " ");
+    if (text.trim().length > 15) {
+      return { text, isDocumentFile: true };
+    }
+
+    // STRATEGY E — parse with SheetJS to support true legacy .xls and edge files.
+    try {
+      const workbook = XLSX.read(finalBuffer, {
+        type: "buffer",
+        cellText: true,
+        cellDates: true,
+        raw: false,
+      });
+
+      let sheetText = "";
+      for (const sheetName of workbook.SheetNames || []) {
+        const worksheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false });
+        sheetText += `\n--- Sheet: ${sheetName} ---\n`;
+        for (const row of rows) {
+          if (!Array.isArray(row)) continue;
+          sheetText += row.map((cell) => (cell == null ? "" : String(cell))).join(", ") + "\n";
+        }
+      }
+
+      if (sheetText.trim().length > 15) {
+        console.log("📊 Parsed spreadsheet with SheetJS fallback.");
+        return { text: sheetText, isDocumentFile: true };
+      }
+    } catch (sheetErr) {
+      console.warn("SheetJS fallback parse failed:", sheetErr.message);
+    }
+
+    return { text: "", isDocumentFile: true };
+  }
+
+  if (isDocx) {
+    try {
+      const result = await mammoth.extractRawText({ buffer: finalBuffer });
+      console.log("📝 Mammoth: Extracted pure text strings from .docx format safely!");
+      return { text: result.value, isDocumentFile: true };
+    } catch (err) {
+      console.warn("Mammoth .docx extraction failed, using fallback:", err.message);
+      const text = finalBuffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " ");
+      return { text, isDocumentFile: true };
+    }
+  }
+
+  if (isPlainText) {
+    const charset = isDoc ? "latin1" : "utf-8";
+    const text = finalBuffer.toString(charset).replace(/[^\x20-\x7E\n\r\t]/g, " ");
+    console.log("📄 Sanitized layout plain text / RTF logs extracted successfully.");
+    return { text, isDocumentFile: true };
+  }
+
+  // Not a recognized document type — treat as image/PDF (binary path)
+  return { text: "", isDocumentFile: false };
 };
 
 // 1. ➕ ADD MANUAL EXPENSE
@@ -118,7 +309,6 @@ export const scanReceiptAndProcess = async (req, res) => {
     let mimeType = safeBody.mimeType || null;
     const userId = req.user?._id || safeBody.userId;
 
-    // Isolate stream packets coming from standard multi-part form data uploads
     let finalBuffer;
     if (req.file) {
       finalBuffer = req.file.buffer;
@@ -141,51 +331,25 @@ export const scanReceiptAndProcess = async (req, res) => {
       return res.status(500).json({ msg: "Configuration Error: GEMINI_API_KEY is missing." });
     }
 
-    let extractedTextContent = "";
-    let isDocumentFile = false;
     const fileName = req.file?.originalname || "";
+    const { text: extractedTextContent, isDocumentFile } = await extractDocumentText(
+      finalBuffer,
+      mimeType,
+      fileName,
+    );
 
-    // 📊 STRATEGY 1: Decode spreadsheet layout arrays using your ExcelJS library
-    if (mimeType.includes("spreadsheet") || mimeType.includes("excel") || mimeType.includes("csv") || fileName.match(/\.(xlsx|xls|csv)$/i)) {
-      isDocumentFile = true;
-      try {
-        const workbook = new ExcelJS.Workbook();
-        await workbook.xlsx.load(finalBuffer);
-        
-        workbook.eachSheet((worksheet) => {
-          extractedTextContent += `\n--- Sheet: ${worksheet.name} ---\n`;
-          worksheet.eachRow((row) => {
-            const rowValues = Array.isArray(row.values) 
-              ? row.values.slice(1).map(v => (v && typeof v === 'object' ? v.result || JSON.stringify(v) : v)) 
-              : [];
-            extractedTextContent += rowValues.join(", ") + "\n";
-          });
-        });
-        console.log("📊 ExcelJS: Spreadsheet grid converted into readable tracking rows.");
-      } catch (excelErr) {
-        console.error("ExcelJS processing failed, using text fallback:", excelErr.message);
-        extractedTextContent = finalBuffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " ");
-      }
-    } 
-    // 📝 STRATEGY 2: Decode native Microsoft Word document parameters via Mammoth
-    else if (mimeType.includes("officedocument.wordprocessingml") || fileName.match(/\.docx$/i)) {
-      isDocumentFile = true;
-      try {
-        const result = await mammoth.extractRawText({ buffer: finalBuffer });
-        extractedTextContent = result.value;
-        console.log("📝 Mammoth: Extracted pure text strings from .docx format safely!");
-      } catch (docxErr) {
-        console.error("Mammoth .docx extraction failed, using fallback:", docxErr.message);
-        extractedTextContent = finalBuffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " ");
-      }
+    if (isDocumentFile && !extractedTextContent.trim()) {
+      return res.status(400).json({
+        msg: "Could not read any text from this file. It may be empty, corrupted, or password-protected.",
+      });
     }
-    // 📄 STRATEGY 3: Strip non-printable formatting artifacts from basic .rtf and text logs
-    else if (mimeType.includes("msword") || mimeType.includes("rtf") || mimeType.includes("text/plain") || fileName.match(/\.(rtf|txt)$/i)) {
-      isDocumentFile = true;
-      const cleanString = finalBuffer.toString("utf-8");
-      extractedTextContent = cleanString.replace(/[^\x20-\x7E\n\r\t]/g, " ");
-      console.log("📄 Sanitized layout plain text / RTF logs extracted successfully.");
-    }
+
+    // Cap text size sent to the model to avoid token-limit related failures on large files
+    const MAX_CHARS = 60000;
+    const trimmedTextContent =
+      extractedTextContent.length > MAX_CHARS
+        ? extractedTextContent.slice(0, MAX_CHARS) + "\n...[truncated]"
+        : extractedTextContent;
 
     // Configure Context Payload Rules
     const genAI = new GoogleGenerativeAI(activeApiKey);
@@ -205,11 +369,11 @@ You must output valid JSON following this format EXACTLY:
 }
 Do not add markdown formatting or wrappers. Return ONLY raw JSON.`;
 
-    let modelInputContent = [];
+    let modelInputContent;
     if (isDocumentFile) {
       modelInputContent = [
         prompt,
-        `Document Contents:\n\n${extractedTextContent}`
+        `Document Contents:\n\n${trimmedTextContent}`,
       ];
     } else {
       // Images & PDFs map cleanly via multimodal binary parameters
@@ -218,16 +382,16 @@ Do not add markdown formatting or wrappers. Return ONLY raw JSON.`;
         {
           inlineData: {
             data: imageBuffer,
-            mimeType: mimeType
-          }
-        }
+            mimeType: mimeType,
+          },
+        },
       ];
     }
 
     // Model orchestration mapping loop
     let availableModels = await listAvailableModels(activeApiKey);
     const supportedModels = selectSupportedModels(availableModels);
-    
+
     let responsePayload;
     let lastError = null;
 
@@ -242,27 +406,53 @@ Do not add markdown formatting or wrappers. Return ONLY raw JSON.`;
       }
     }
 
-    if (!responsePayload) {
-      return res.status(500).json({ msg: "Gemini Model Engine Handling failure.", error: lastError?.message });
+    let extractedPayload = null;
+
+    if (responsePayload) {
+      try {
+        const response = responsePayload.response;
+        const hasContent =
+          response && Array.isArray(response.candidates) && response.candidates.length > 0;
+
+        if (hasContent) {
+          const rawTextOutput = response.text().trim();
+          const sanitizedText = rawTextOutput.replace(/```json|```/g, "").trim();
+          try {
+            extractedPayload = JSON.parse(sanitizedText);
+          } catch {
+            const jsonMatch = rawTextOutput.match(/{[\s\S]*"transactions"[\s\S]*}/);
+            if (jsonMatch) extractedPayload = JSON.parse(jsonMatch[0]);
+          }
+        } else {
+          console.warn("Gemini returned no candidates (likely blocked by safety filters).");
+        }
+      } catch (parseErr) {
+        console.warn("Failed to read/parse Gemini response:", parseErr.message);
+      }
+    } else {
+      console.warn("All Gemini models failed:", lastError?.message);
     }
 
-    let rawTextOutput = responsePayload.response.text().trim();
-    let extractedPayload;
-
-    try {
-      let sanitizedText = rawTextOutput.replace(/```json|```/g, "").trim();
-      extractedPayload = JSON.parse(sanitizedText);
-    } catch {
-      const jsonMatch = rawTextOutput.match(/{[\s\S]*"transactions"[\s\S]*}/);
-      if (jsonMatch) {
-        extractedPayload = JSON.parse(jsonMatch[0]);
-      } else {
-        return res.status(500).json({ msg: "Structured data parsing error. Output did not return cleanly." });
+    // 🛟 LOCAL LINE-SCAN FALLBACK — only possible for text-based documents,
+    // not images/PDFs (those genuinely need the AI's vision capability).
+    // Keeps docx/txt/xlsx/xls/csv uploads working even if Gemini is down,
+    // rate-limited, or returns something we can't parse.
+    if (
+      (!extractedPayload || !Array.isArray(extractedPayload.transactions) || extractedPayload.transactions.length === 0) &&
+      isDocumentFile
+    ) {
+      const localTransactions = parseTransactionsFromRawText(trimmedTextContent);
+      if (localTransactions.length > 0) {
+        console.log("🧮 Falling back to local line-scan categorization engine.");
+        extractedPayload = { transactions: localTransactions };
       }
     }
 
-    if (!extractedPayload.transactions || !Array.isArray(extractedPayload.transactions)) {
-      return res.status(400).json({ msg: "Invalid target array container layout." });
+    if (!extractedPayload || !Array.isArray(extractedPayload.transactions) || extractedPayload.transactions.length === 0) {
+      return res.status(500).json({
+        msg: "Could not extract any transactions from this file.",
+        error: lastError?.message || "No usable content was returned.",
+      });
     }
 
     // 💾 DB PLACEMENT LOOPS
@@ -274,7 +464,13 @@ Do not add markdown formatting or wrappers. Return ONLY raw JSON.`;
         if (!finalAmount || isNaN(finalAmount)) continue;
 
         const allowedCategories = ["Groceries", "Food & Drinks", "Travel & Transport", "Shopping", "Bills & Utilities", "Entertainment", "Other"];
-        let cat = allowedCategories.includes(transaction.category) ? transaction.category : "Other";
+        let cat = allowedCategories.includes(transaction.category) ? transaction.category : autoCategorize(transaction.description);
+
+        // If the model shrugged and said "Other", give the regex engine a second opinion
+        if (cat === "Other") {
+          const guess = autoCategorize(transaction.description);
+          if (guess !== "Other") cat = guess;
+        }
 
         const automatedExpense = new Expense({
           userId,
