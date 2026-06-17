@@ -12,8 +12,8 @@ import Dashboard from "./components/dashboard";
  * Block guests from accessing internal views
  */
 const ProtectedRoute = ({ children }) => {
-  const { token } = useContext(AuthContext);
-  return token ? children : <Navigate to="/login" replace />;
+  const { token, user } = useContext(AuthContext);
+  return token && user ? children : <Navigate to="/login" replace />;
 };
 
 /**
@@ -21,8 +21,8 @@ const ProtectedRoute = ({ children }) => {
  * Prevent already logged-in users from hitting login/register views again
  */
 const PublicRoute = ({ children }) => {
-  const { token } = useContext(AuthContext);
-  return !token ? children : <Navigate to="/dashboard" replace />;
+  const { token, user } = useContext(AuthContext);
+  return !token || !user ? children : <Navigate to="/dashboard" replace />;
 };
 
 function App() {

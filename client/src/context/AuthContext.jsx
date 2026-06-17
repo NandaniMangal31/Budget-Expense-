@@ -35,6 +35,31 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
+  // Sanity-check stored auth values on mount, clear if incomplete or invalid
+  useEffect(() => {
+    try {
+      const savedUser = localStorage.getItem("user");
+      const savedToken = localStorage.getItem("token");
+      const isUserValid = savedUser && savedUser !== "undefined";
+      const isTokenValid = savedToken && savedToken !== "undefined";
+
+      if (!isUserValid || !isTokenValid) {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+        setUser(null);
+        setToken(null);
+      }
+    } catch (storageError) {
+      console.warn("Auth storage sanity check failed:", storageError);
+      try {
+        localStorage.removeItem("user");
+        localStorage.removeItem("token");
+      } catch {}
+      setUser(null);
+      setToken(null);
+    }
+  }, []);
+
   // Memoized login to prevent downstream re-renders
   const login = useCallback((authData) => {
     if (!authData?.token) {

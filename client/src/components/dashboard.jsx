@@ -191,82 +191,101 @@ export default function Dashboard() {
     }
   };
 
-  const handleUniversalFileScan = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+const handleUniversalFileScan = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    const fileExtension = file.name.split(".").pop().toLowerCase();
-    const allowedExtensions = [
-      "jpg",
-      "jpeg",
-      "png",
-      "webp",
-      "pdf",
-      "xlsx",
-      "xls",
-      "csv",
-      "docx",
-      "doc",
-      "rtf",
-      "txt",
-    ];
+  const fileNameLower = file.name.toLowerCase();
+  
+  // 🛡️ Guardrail: Stop users early if they upload obvious configuration/help sheets
+  if (fileNameLower.includes("- settings") || fileNameLower.includes("- help") || fileNameLower.includes("- copy")) {
+    alert("⚠️ Sheet Mismatch Detected\nIt looks like you uploaded a Settings or Help sheet. Please choose the sheet containing your actual transaction entries (e.g., Register or Ledger).");
+    e.target.value = "";
+    return;
+  }
 
-    if (!allowedExtensions.includes(fileExtension)) {
-      alert(
-        `❌ Unsupported File Type (${file.name})\nPlease upload Images, PDFs, Docs, or Spreadsheets.`,
-      );
-      e.target.value = "";
-      return;
-    }
+  const fileExtension = file.name.split('.').pop().toLowerCase();
+  const allowedExtensions = [
+    "jpg",
+    "jpeg",
+    "png",
+    "webp",
+    "pdf",
+    "xlsx",
+    "xls",
+    "csv",
+    "docx",
+    "doc",
+    "rtf",
+    "txt",
+  ];
+  
+  if (!allowedExtensions.includes(fileExtension)) {
+    alert(`❌ Unsupported File Type (${file.name})\nPlease upload Images, PDFs, Docs, or Spreadsheets.`);
+    e.target.value = "";
+    return;
+  }
 
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      // 🔒 Strictly matches your backend Multer upload.single("file") gateway criteria
-      formData.append("file", file);
+  setUploading(true);
+  try {
+    // Convert file to base64 and send as JSON payload to avoid multipart parsing issues on deployed backend
+    const fileToBase64 = (f) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result; // data:<mime>;base64,<data>
+        const base64 = typeof result === 'string' ? result.split(',').pop() : null;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(f);
+    });
 
-      // 🪙 Retrieve authorization credentials locally to ensure the user profile is verified
-      const activeToken = localStorage.getItem("token");
+    const base64 = await fileToBase64(file);
+    if (!base64) throw new Error('Failed to convert file to base64');
 
-      const res = await API.post("/expenses/scan", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          // 🛡️ Guardrail: Explicitly injects Bearer credentials if global instance interceptors skip them
-          ...(activeToken && { Authorization: `Bearer ${activeToken}` }),
-        },
-      });
+    const payload = {
+      imageBuffer: base64,
+      mimeType: file.type,
+      userId: userId || undefined,
+      scannedDocumentName: file.name
+    };
 
-      // 🎯 FIX: Intelligently resolves backend property fields 'msg' or 'message'
-      const serverSuccessOutput =
-        res.data?.msg ||
-        res.data?.message ||
-        "Document processed successfully!";
-      const totalItemsImported = res.data?.summary?.transactionsScanned || 1;
+    const activeToken = localStorage.getItem('token');
 
-      alert(
-        `🎉 ${serverSuccessOutput} (Parsed ${totalItemsImported} line items into your ledger)`,
-      );
-
-      if (typeof refreshExpenses === "function") {
-        await refreshExpenses();
+    const res = await API.post('/expenses/scan', payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...(activeToken && { Authorization: `Bearer ${activeToken}` })
       }
-    } catch (apiErr) {
-      console.error("🚨 API Engine Communication Error Trace:", apiErr);
+    });
 
-      // 🎯 FIX: Explicitly extracts backend failure keys ('msg' -> 'message' -> 'error')
-      const serverErrMsg =
-        apiErr.response?.data?.msg ||
-        apiErr.response?.data?.message ||
-        apiErr.response?.data?.error;
+    const serverSuccessOutput = res.data?.msg || res.data?.message || 'Document processed successfully!';
+    const totalItemsImported = res.data?.summary?.transactionsScanned || 1;
 
-      alert(
-        `❌ Upload Failure: ${serverErrMsg || "File processing execution parameters failed. Verify server cluster log files."}`,
-      );
-    } finally {
-      setUploading(false);
-      e.target.value = ""; // Flush the input stream so you can re-upload the same file if needed
+    alert(`🎉 ${serverSuccessOutput} (Parsed ${totalItemsImported} line items into your ledger)`);
+
+    if (typeof refreshExpenses === 'function') {
+      await refreshExpenses();
     }
-  };
+  } catch (apiErr) {
+    console.error("🚨 API Engine Communication Error Trace:", apiErr);
+    
+    const serverErrMsg = 
+      apiErr.response?.data?.msg || 
+      apiErr.response?.data?.message || 
+      apiErr.response?.data?.error;
+
+    // 🎯 FIX: Clear user notification if a file contains zero transaction entries
+    if (apiErr.response?.status === 400) {
+      alert(`⚠️ Scan Warning: ${serverErrMsg}\n\nTip: Ensure the document contains visible numeric columns with clear transaction amounts or values.`);
+    } else {
+      alert(`❌ Upload Failure: ${serverErrMsg || "File processing execution parameters failed. Verify server cluster log files."}`);
+    }
+  } finally {
+    setUploading(false);
+    e.target.value = ""; 
+  }
+};
 
   const handleSaveBudgetConfig = async () => {
     if (!userId) return;
