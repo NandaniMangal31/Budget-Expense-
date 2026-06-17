@@ -22,9 +22,17 @@ const getBaseURL = () => {
 
 const API = axios.create({
   baseURL: getBaseURL(),
-  headers: {
-    "Content-Type": "application/json",
-  },
+});
+
+// Let the browser set multipart boundary when uploading files (FormData).
+API.interceptors.request.use((config) => {
+  if (config.data instanceof FormData) {
+    if (config.headers) {
+      delete config.headers["Content-Type"];
+      delete config.headers["content-type"];
+    }
+  }
+  return config;
 });
 
 // Optional global response management (Highly recommended)

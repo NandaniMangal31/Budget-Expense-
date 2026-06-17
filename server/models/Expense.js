@@ -42,7 +42,15 @@ const expenseSchema = new mongoose.Schema({
   date: {
     type: Date,
     default: Date.now
-  }
+  },
+
+  // 💸 expense = money out · received = credited / refund / income
+  transactionType: {
+    type: String,
+    enum: ["expense", "received"],
+    default: "expense",
+    index: true,
+  },
 }, {
   timestamps: true 
 });

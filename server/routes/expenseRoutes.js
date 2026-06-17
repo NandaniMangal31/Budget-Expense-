@@ -1,18 +1,42 @@
 import express from "express";
 import multer from "multer";
-import { addExpense, getExpenses, scanReceiptAndProcess } from "../controllers/expenseController.js";
+import { addExpense, getExpenses, scanReceiptAndProcess, deleteAllExpenses } from "../controllers/expenseController.js";
 import Expense from "../models/Expense.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
+
+const SCAN_EXTENSIONS = [
+  "jpg", "jpeg", "png", "webp", "gif",
+  "pdf",
+  "xlsx", "xls", "csv",
+  "docx", "doc", "rtf", "txt",
+];
 
 const router = express.Router();
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = file.originalname?.split(".").pop()?.toLowerCase() || "";
+    if (SCAN_EXTENSIONS.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`Unsupported file type (.${ext}). Allowed: ${SCAN_EXTENSIONS.join(", ")}`));
+    }
+  },
 });
 
-// Upload scanner endpoint
-router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) => {
+// Upload scanner endpoint — accepts all supported document/image types via multipart or base64 JSON
+router.post("/scan", verifyToken, (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) {
+      const msg = err.message || "File upload failed.";
+      const status = msg.includes("Unsupported file type") ? 400 : 400;
+      return res.status(status).json({ success: false, msg, message: msg });
+    }
+    next();
+  });
+}, async (req, res, next) => {
   try {
     // Accept multipart uploads or JSON/base64 payloads.
     if (!req.file && req.body && req.body.imageBuffer) {
@@ -29,9 +53,11 @@ router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) 
     }
 
     if (!req.file) {
-      return res
-        .status(400)
-        .json({ success: false, message: "No file uploaded or payload data provided." });
+      return res.status(400).json({
+        success: false,
+        msg: "No file uploaded or payload data provided.",
+        message: "No file uploaded or payload data provided.",
+      });
     }
 
     req.body = req.body || {};
@@ -41,15 +67,22 @@ router.post("/scan", verifyToken, upload.single("file"), async (req, res, next) 
     return scanReceiptAndProcess(req, res, next);
   } catch (err) {
     console.error("Universal Scanner Architecture Crash:", err);
-    return res
-      .status(500)
-      .json({ success: false, message: "Pipeline error resolving file layout rules parameters." });
+    if (err.message?.includes("Unsupported file type")) {
+      return res.status(400).json({ success: false, msg: err.message, message: err.message });
+    }
+    const message =
+      err.message?.includes("Unsupported file type")
+        ? err.message
+        : "Pipeline error resolving file layout rules parameters.";
+    return res.status(500).json({ success: false, message, msg: message });
   }
 });
 
 // ==========================================
 // 🛠️ TRADITIONAL CRUD PIPELINES
 // ==========================================
+router.delete("/all", verifyToken, deleteAllExpenses);
+
 router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const expenseId = req.params.id;

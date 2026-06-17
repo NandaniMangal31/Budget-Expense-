@@ -9,6 +9,7 @@ import BudgetModal from "./BudgetModal";
 import MetricCards from "./MetricCards";
 import CategoryAnalysis from "./CategoryAnalysis";
 import ExpenseLogsTable from "./ExpenseLogsTable";
+import ReceivedLogsTable from "./ReceivedLogsTable";
 import ProfileModal from "./ProfileModal";
 
 // Helper safely extracted outside component cycle to avoid redundant re-initialization
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [isBudgetFormOpen, setIsBudgetFormOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   const [targetInputs, setTargetInputs] = useState({
     totalBudget: "",
@@ -204,12 +206,13 @@ const handleUniversalFileScan = async (e) => {
     return;
   }
 
-  const fileExtension = file.name.split('.').pop().toLowerCase();
+  const fileExtension = file.name.split(".").pop().toLowerCase();
   const allowedExtensions = [
     "jpg",
     "jpeg",
     "png",
     "webp",
+    "gif",
     "pdf",
     "xlsx",
     "xls",
@@ -219,50 +222,41 @@ const handleUniversalFileScan = async (e) => {
     "rtf",
     "txt",
   ];
-  
+
   if (!allowedExtensions.includes(fileExtension)) {
-    alert(`❌ Unsupported File Type (${file.name})\nPlease upload Images, PDFs, Docs, or Spreadsheets.`);
+    alert(
+      `❌ Unsupported File Type (${file.name})\n\nAllowed formats:\nImages (jpg, png, webp, gif)\nPDF\nWord (doc, docx)\nExcel (xls, xlsx, csv)\nText (txt, rtf)`,
+    );
     e.target.value = "";
     return;
   }
 
   setUploading(true);
   try {
-    // Convert file to base64 and send as JSON payload to avoid multipart parsing issues on deployed backend
-    const fileToBase64 = (f) => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result; // data:<mime>;base64,<data>
-        const base64 = typeof result === 'string' ? result.split(',').pop() : null;
-        resolve(base64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(f);
-    });
+    const formData = new FormData();
+    formData.append("file", file);
 
-    const base64 = await fileToBase64(file);
-    if (!base64) throw new Error('Failed to convert file to base64');
+    const activeToken = localStorage.getItem("token");
 
-    const payload = {
-      imageBuffer: base64,
-      mimeType: file.type,
-      userId: userId || undefined,
-      scannedDocumentName: file.name
-    };
-
-    const activeToken = localStorage.getItem('token');
-
-    const res = await API.post('/expenses/scan', payload, {
+    const res = await API.post("/expenses/scan", formData, {
       headers: {
-        'Content-Type': 'application/json',
-        ...(activeToken && { Authorization: `Bearer ${activeToken}` })
-      }
+        ...(activeToken && { Authorization: `Bearer ${activeToken}` }),
+      },
+      // Large PDFs/images may need extra time for OCR processing
+      timeout: 120000,
     });
 
-    const serverSuccessOutput = res.data?.msg || res.data?.message || 'Document processed successfully!';
-    const totalItemsImported = res.data?.summary?.transactionsScanned || 1;
+    const serverSuccessOutput = res.data?.msg || res.data?.message || "Document processed successfully!";
+    const fileKind = res.data?.summary?.fileKind || fileExtension;
+    const expensesImported =
+      res.data?.summary?.expensesCount ??
+      res.data?.data?.filter((item) => item.transactionType !== "received").length ??
+      0;
+    const receivedImported = res.data?.summary?.receivedCount ?? 0;
 
-    alert(`🎉 ${serverSuccessOutput} (Parsed ${totalItemsImported} line items into your ledger)`);
+    alert(
+      `🎉 ${serverSuccessOutput}\n\nFile type: ${fileKind}\nExpenses imported: ${expensesImported}\nReceived imported: ${receivedImported}`,
+    );
 
     if (typeof refreshExpenses === 'function') {
       await refreshExpenses();
@@ -312,17 +306,39 @@ const handleUniversalFileScan = async (e) => {
   };
 
   const handleDeleteExpense = async (expenseId) => {
-    if (!window.confirm("Are you sure you want to delete this expense?"))
+    if (!window.confirm("Are you sure you want to delete this entry?"))
       return;
     try {
       setDeletingId(expenseId);
       await API.delete(`/expenses/${expenseId}`);
       setExpenses((prev) => prev.filter((item) => item._id !== expenseId));
-      alert("Expense log successfully deleted!");
+      alert("Entry successfully deleted!");
     } catch (err) {
       console.error(err);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleDeleteAllExpenses = async () => {
+    if (
+      !window.confirm(
+        "Delete ALL expense logs? Received/credit entries will be kept.",
+      )
+    )
+      return;
+    try {
+      setIsDeletingAll(true);
+      await API.delete("/expenses/all");
+      setExpenses((prev) =>
+        prev.filter((item) => item.transactionType === "received"),
+      );
+      alert("All expense logs deleted!");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete all expense logs.");
+    } finally {
+      setIsDeletingAll(false);
     }
   };
 
@@ -334,9 +350,19 @@ const handleUniversalFileScan = async (e) => {
     [budgetConfig.totalBudget, parseSafeAmount],
   );
 
+  const expenseLogs = useMemo(
+    () => expenses.filter((item) => item.transactionType !== "received"),
+    [expenses],
+  );
+
+  const receivedLogs = useMemo(
+    () => expenses.filter((item) => item.transactionType === "received"),
+    [expenses],
+  );
+
   const totalExpenses = useMemo(
-    () => expenses.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0),
-    [expenses, parseSafeAmount],
+    () => expenseLogs.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0),
+    [expenseLogs, parseSafeAmount],
   );
 
   const remainingBudget = useMemo(
@@ -345,7 +371,7 @@ const handleUniversalFileScan = async (e) => {
   );
 
   const categoryTotals = useMemo(() => {
-    return expenses.reduce((acc, curr) => {
+    return expenseLogs.reduce((acc, curr) => {
       let cat = curr.category || "Other";
       let normalizedCat = cat.trim();
 
@@ -358,11 +384,16 @@ const handleUniversalFileScan = async (e) => {
         (acc[normalizedCat] || 0) + parseSafeAmount(curr.amount);
       return acc;
     }, {});
-  }, [expenses, parseSafeAmount]);
+  }, [expenseLogs, parseSafeAmount]);
 
   const displayExpenses = useMemo(
-    () => (expenses.length > 0 ? [...expenses].reverse() : []),
-    [expenses],
+    () => (expenseLogs.length > 0 ? [...expenseLogs].reverse() : []),
+    [expenseLogs],
+  );
+
+  const displayReceived = useMemo(
+    () => (receivedLogs.length > 0 ? [...receivedLogs].reverse() : []),
+    [receivedLogs],
   );
 
   const getCategoryStyles = useCallback((categoryName) => {
@@ -497,12 +528,12 @@ const handleUniversalFileScan = async (e) => {
                   : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
               </span>
               <span className="block text-xs text-slate-400 mt-1">
-                Accepts image, PDF, Excel, CSV, Word, RTF, and TXT files
+                Images · PDF · Word · Excel · CSV · TXT · RTF
               </span>
             </div>
             <input
               type="file"
-              accept="image/jpeg, image/png, image/webp, application/pdf, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv, application/vnd.openxmlformats-officedocument.wordprocessingml.document, application/msword, application/rtf, text/rtf, text/plain"
+              accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.xlsx,.xls,.csv,.doc,.docx,.rtf,.txt,image/*,application/pdf"
               onChange={handleUniversalFileScan}
               className="hidden"
               disabled={uploading}
@@ -523,7 +554,7 @@ const handleUniversalFileScan = async (e) => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start w-full">
           <div className="lg:col-span-2 w-full">
             <CategoryAnalysis
-              expenses={expenses}
+              expenses={expenseLogs}
               categoryTotals={categoryTotals}
               totalExpenses={totalExpenses}
               budgetConfig={budgetConfig}
@@ -532,10 +563,18 @@ const handleUniversalFileScan = async (e) => {
               formatAdvancedAmount={formatAdvancedAmount}
             />
           </div>
-          <div className="w-full">
+          <div className="w-full flex flex-col gap-6">
             <ExpenseLogsTable
               displayExpenses={displayExpenses}
               getCategoryStyles={getCategoryStyles}
+              formatAdvancedAmount={formatAdvancedAmount}
+              onDeleteExpense={handleDeleteExpense}
+              deletingId={deletingId}
+              onDeleteAll={handleDeleteAllExpenses}
+              isDeletingAll={isDeletingAll}
+            />
+            <ReceivedLogsTable
+              displayReceived={displayReceived}
               formatAdvancedAmount={formatAdvancedAmount}
               onDeleteExpense={handleDeleteExpense}
               deletingId={deletingId}

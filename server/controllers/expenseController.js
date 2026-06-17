@@ -51,6 +51,17 @@ const listAvailableModels = async (apiKey) => {
   }
 };
 
+const RECEIVED_KEYWORDS =
+  /\b(received|credited|credit|refund|refunded|reversal|reversed|cashback|salary|income|deposit|money\s+in)\b/i;
+
+const isReceivedTransaction = (description, lineText = "") => {
+  const text = `${description || ""} ${lineText || ""}`.toLowerCase();
+  return RECEIVED_KEYWORDS.test(text);
+};
+
+const resolveTransactionType = (description, lineText = "") =>
+  isReceivedTransaction(description, lineText) ? "received" : "expense";
+
 // 🧼 DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
 const autoCategorize = (description) => {
   const desc = (description || "").toLowerCase().trim();
@@ -77,6 +88,90 @@ const ALLOWED_CATEGORIES = [
   "Other",
 ];
 
+// Supported upload types for the universal scanner
+const SUPPORTED_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "png",
+  "webp",
+  "gif",
+  "pdf",
+  "xlsx",
+  "xls",
+  "csv",
+  "docx",
+  "doc",
+  "rtf",
+  "txt",
+];
+
+const MIME_BY_EXTENSION = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  pdf: "application/pdf",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xls: "application/vnd.ms-excel",
+  csv: "text/csv",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  doc: "application/msword",
+  rtf: "application/rtf",
+  txt: "text/plain",
+};
+
+const resolveUploadFile = (mimeType, fileName) => {
+  const lowerName = String(fileName || "").toLowerCase();
+  const ext = lowerName.includes(".") ? lowerName.split(".").pop() : "";
+  const supported = SUPPORTED_EXTENSIONS.includes(ext);
+  const resolvedMime =
+    mimeType && mimeType !== "application/octet-stream"
+      ? mimeType
+      : MIME_BY_EXTENSION[ext] || mimeType || "application/octet-stream";
+
+  let fileKind = "unknown";
+  if (/^image\//.test(resolvedMime) || ["jpg", "jpeg", "png", "webp", "gif"].includes(ext)) {
+    fileKind = "image";
+  } else if (resolvedMime.includes("pdf") || ext === "pdf") {
+    fileKind = "pdf";
+  } else if (["xlsx", "xls", "csv"].includes(ext) || /spreadsheet|excel|csv/i.test(resolvedMime)) {
+    fileKind = "spreadsheet";
+  } else if (["docx", "doc"].includes(ext) || /word|msword|wordprocessing/i.test(resolvedMime)) {
+    fileKind = "word";
+  } else if (ext === "rtf" || /rtf/i.test(resolvedMime)) {
+    fileKind = "rtf";
+  } else if (ext === "txt" || /text\/plain/i.test(resolvedMime)) {
+    fileKind = "text";
+  }
+
+  return { ext, mimeType: resolvedMime, fileKind, supported };
+};
+
+const cleanRTFToText = (rtfStr) => {
+  let text = String(rtfStr || "");
+  text = text.replace(/\\([a-z]{1,32})(-?\d+)? ?/gi, "");
+  text = text.replace(/\{[^}]*\}/g, "");
+  text = text.replace(/[\r\n\t]+/g, "\n");
+  return text.trim();
+};
+
+const successMessageForScan = (fileKind, usedLocalOcr) => {
+  const labels = {
+    image: "Image",
+    pdf: "PDF",
+    spreadsheet: "Spreadsheet",
+    word: "Word document",
+    rtf: "RTF document",
+    text: "Text file",
+  };
+  const label = labels[fileKind] || "Document";
+  if (usedLocalOcr) {
+    return `${label} processed with local OCR (AI quota unavailable). 🎉`;
+  }
+  return `${label} scanned and categorized successfully! 🎉`;
+};
+
 const DOCUMENT_SCAN_PROMPT = `Analyze this expense document and extract every individual purchase/transaction line.
 
 Categories (use exactly one per line): ${ALLOWED_CATEGORIES.map((c) => `"${c}"`).join(", ")}
@@ -85,6 +180,7 @@ Rules:
 - Read line by line; one row with a price = one transaction.
 - Use only real money amounts (never dates, years, invoice numbers, qty, or phone numbers).
 - Skip subtotal, tax, grand total, balance, and header/footer rows.
+- If description contains received, credited, refund, salary, or income — still include the row (it will be classified as income).
 - amount must be a plain number (no currency symbols).
 
 Return ONLY raw JSON:
@@ -104,6 +200,7 @@ Critical rules:
 - NEVER use dates (17/06/2026), times (14:30), years (2024/2025/2026), invoice IDs, GSTIN, or qty as amount.
 - Ignore address, phone, thank-you notes, barcode text.
 - Skip rows named: subtotal, tax, cgst, sgst, total, grand total, balance, change, tip.
+- Include rows with received, credited, refund, salary, or income in the description (money coming in).
 - If one line has item + amount, create one transaction for that line.
 - Choose category from item/merchant meaning (food places => Food & Drinks, fuel/uber => Travel & Transport, etc).
 
@@ -303,6 +400,7 @@ const sanitizeAiTransactions = (transactions) => {
       description,
       amount,
       itemCount: 1,
+      transactionType: resolveTransactionType(description),
     });
   }
 
@@ -586,7 +684,7 @@ const parseUpiAppScreenshotText = (text) => {
     return "Other";
   };
 
-  const pushTransaction = (name, amount, category, lineIndexes = []) => {
+  const pushTransaction = (name, amount, category, lineIndexes = [], sourceLine = "") => {
     if (!name || !amount) return;
     const dedupeKey = `${name.toLowerCase()}|${amount}`;
     if (seen.has(dedupeKey)) return;
@@ -598,6 +696,7 @@ const parseUpiAppScreenshotText = (text) => {
       description: name,
       amount,
       itemCount: 1,
+      transactionType: resolveTransactionType(name, sourceLine || category),
     });
   };
 
@@ -640,7 +739,45 @@ const parseUpiAppScreenshotText = (text) => {
     }
 
     if (name && amount) {
-      pushTransaction(name, amount, findCategoryNear(i), usedIndexes);
+      pushTransaction(name, amount, findCategoryNear(i), usedIndexes, line);
+    }
+  }
+
+  // Strategy A2 — Received / Credited / Refund rows (money in).
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/^(received|credited|refund)/i.test(line) && !isReceivedTransaction(line)) continue;
+    if (usedLineIndexes.has(i)) continue;
+
+    let name = null;
+    let amount = null;
+    const usedIndexes = [i];
+
+    const inline = extractNameAmountFromLine(line);
+    if (inline) {
+      name = inline.name || line;
+      amount = inline.amount;
+    } else {
+      for (let j = i + 1; j <= Math.min(lines.length - 1, i + 3); j++) {
+        const extracted = extractNameAmountFromLine(lines[j]);
+        if (extracted?.amount) {
+          name = extracted.name || line;
+          amount = extracted.amount;
+          usedIndexes.push(j);
+          break;
+        }
+      }
+      if (!amount) {
+        const extracted = extractAmountFromLine(line);
+        if (extracted) {
+          name = cleanLineDescription(line, extracted.amountToken) || line;
+          amount = extracted.amount;
+        }
+      }
+    }
+
+    if (name && amount) {
+      pushTransaction(name, amount, "Other", usedIndexes, line);
     }
   }
 
@@ -668,7 +805,7 @@ const parseUpiAppScreenshotText = (text) => {
       }
     }
 
-    pushTransaction(name, extracted.amount, findCategoryNear(i), [i]);
+    pushTransaction(name, extracted.amount, findCategoryNear(i), [i], lines[i]);
   }
 
   // Strategy C — anchor on category tags (Money Transfer / Groceries) and look upward.
@@ -715,7 +852,7 @@ const parseUpiAppScreenshotText = (text) => {
     }
 
     if (name && amount) {
-      pushTransaction(name, amount, category, [i]);
+      pushTransaction(name, amount, category, [i], lines[i]);
     }
   }
 
@@ -753,14 +890,16 @@ const parseTransactionsFromRawText = (text) => {
     let description = cleanLineDescription(line, amountToken);
 
     const lowerDesc = description.toLowerCase();
+    const isReceivedLine = isReceivedTransaction(description, line);
     if (
-      /^(total|subtotal|tax|balance|amount|date|description|item|qty|quantity|payment|paid)$/i.test(
+      !isReceivedLine &&
+      (/^(total|subtotal|tax|balance|amount|date|description|item|qty|quantity|payment|paid)$/i.test(
         lowerDesc,
       ) ||
       /subtotal|grand total|total expense|total income|total spent|page \d|statement period|opening balance|invoice no|bill no|gstin|thank you|sent yesterday|sent on|paid on|money transfer|from \d|payment history|your accounts|upi lite|canara bank/i.test(
         lowerDesc,
       ) ||
-      /^(sent|paid|from|june|paytm)/i.test(lowerDesc)
+      /^(sent|paid|from|june|paytm)/i.test(lowerDesc))
     ) {
       continue;
     }
@@ -774,6 +913,7 @@ const parseTransactionsFromRawText = (text) => {
       description,
       amount,
       itemCount: 1,
+      transactionType: resolveTransactionType(description, line),
     });
   }
 
@@ -789,8 +929,6 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
   const isXls = /\.xls$/i.test(lowerFileName);
   const isXlsx = /\.xlsx$/i.test(lowerFileName);
   const isCsv = /\.csv$/i.test(lowerFileName);
-  const isDoc = /\.doc$/i.test(lowerFileName);
-
   const isSpreadsheet =
     mimeType.includes("spreadsheet") ||
     mimeType.includes("excel") ||
@@ -801,13 +939,9 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
 
   const isDocx =
     mimeType.includes("officedocument.wordprocessingml") || /\.docx$/i.test(fileName);
-
-  const isPlainText =
-    mimeType.includes("msword") ||
-    mimeType.includes("rtf") ||
-    mimeType.includes("text/plain") ||
-    /\.(rtf|txt)$/i.test(fileName) ||
-    isDoc;
+  const isDoc = /\.doc$/i.test(fileName) && !isDocx;
+  const isRtf = /\.rtf$/i.test(fileName) || mimeType.includes("rtf");
+  const isTxt = /\.txt$/i.test(fileName) || mimeType.includes("text/plain");
 
   if (isSpreadsheet) {
     const isCsvFile = mimeType.includes("csv") || isCsv;
@@ -912,23 +1046,34 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
     return { text: "", isDocumentFile: true };
   }
 
-  if (isDocx) {
-    try {
-      const result = await mammoth.extractRawText({ buffer: finalBuffer });
-      console.log("📝 Mammoth: Extracted pure text strings from .docx format safely!");
-      return { text: result.value, isDocumentFile: true };
-    } catch (err) {
-      console.warn("Mammoth .docx extraction failed, using fallback:", err.message);
-      const text = finalBuffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " ");
-      return { text, isDocumentFile: true };
+  if (isDocx || isDoc) {
+    if (isDocx) {
+      try {
+        const result = await mammoth.extractRawText({ buffer: finalBuffer });
+        console.log("📝 Mammoth: Extracted text from Word (.docx).");
+        return { text: result.value, isDocumentFile: true, fileKind: "word" };
+      } catch (err) {
+        console.warn("Mammoth .docx extraction failed:", err.message);
+      }
     }
+
+    const text = finalBuffer
+      .toString(isDocx ? "utf-8" : "latin1")
+      .replace(/[^\x20-\x7E\n\r\t]/g, " ");
+    console.log(`📝 Extracted text from Word (${isDocx ? ".docx" : ".doc"}) fallback.`);
+    return { text, isDocumentFile: true, fileKind: "word" };
   }
 
-  if (isPlainText) {
-    const charset = isDoc ? "latin1" : "utf-8";
-    const text = finalBuffer.toString(charset).replace(/[^\x20-\x7E\n\r\t]/g, " ");
-    console.log("📄 Sanitized layout plain text / RTF logs extracted successfully.");
-    return { text, isDocumentFile: true };
+  if (isRtf) {
+    const text = cleanRTFToText(finalBuffer.toString("utf-8"));
+    console.log("📄 RTF document cleaned to plain text.");
+    return { text, isDocumentFile: true, fileKind: "rtf" };
+  }
+
+  if (isTxt) {
+    const text = finalBuffer.toString("utf-8");
+    console.log("📄 Plain text file loaded.");
+    return { text, isDocumentFile: true, fileKind: "text" };
   }
 
   const isPdf = mimeType.includes("pdf") || /\.pdf$/i.test(lowerFileName);
@@ -937,16 +1082,16 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
       const pdfText = await extractPdfText(finalBuffer);
       if (pdfText) {
         console.log("📄 PDF text extracted via pdf-parse.");
-        return { text: pdfText, isDocumentFile: true };
+        return { text: pdfText, isDocumentFile: true, fileKind: "pdf" };
       }
     } catch (err) {
       console.warn("pdf-parse failed:", err.message);
     }
-    return { text: "", isDocumentFile: false, isScannedPdf: true };
+    return { text: "", isDocumentFile: false, fileKind: "pdf", isScannedPdf: true };
   }
 
-  // Images use Gemini vision first, then local OCR fallback.
-  return { text: "", isDocumentFile: false };
+  // Images — OCR / vision path in scanReceiptAndProcess.
+  return { text: "", isDocumentFile: false, fileKind: "image" };
 };
 
 // 1. ➕ ADD MANUAL EXPENSE
@@ -975,6 +1120,29 @@ export const getExpenses = async (req, res) => {
   }
 };
 
+// 2b. 🗑️ DELETE ALL EXPENSE LOGS (keeps received/credit entries)
+export const deleteAllExpenses = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, msg: "Session validation expired or User ID missing." });
+    }
+
+    const result = await Expense.deleteMany({
+      userId,
+      $or: [{ transactionType: "expense" }, { transactionType: { $exists: false } }],
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: `Deleted ${result.deletedCount} expense log(s).`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, msg: "Failed to delete expense logs.", error: err.message });
+  }
+};
+
 // 3. 📸 AI SCAN RECEIPT & PROCESS
 export const scanReceiptAndProcess = async (req, res) => {
   try {
@@ -1000,18 +1168,28 @@ export const scanReceiptAndProcess = async (req, res) => {
       return res.status(401).json({ msg: "Session validation expired or User ID missing." });
     }
 
+    const fileName = req.file?.originalname || safeBody.scannedDocumentName || "";
+    const fileMeta = resolveUploadFile(mimeType, fileName);
+
+    if (!fileMeta.supported) {
+      return res.status(400).json({
+        msg: `Unsupported file type${fileMeta.ext ? ` (.${fileMeta.ext})` : ""}. Allowed: ${SUPPORTED_EXTENSIONS.join(", ")}`,
+      });
+    }
+
+    mimeType = fileMeta.mimeType;
     const activeApiKey = getGeminiKey();
 
-    const fileName = req.file?.originalname || safeBody.scannedDocumentName || "";
+    console.log(`📂 Universal scan started: ${fileName} [${fileMeta.fileKind}]`);
+
     const { text: extractedTextContent, isDocumentFile } = await extractDocumentText(
       finalBuffer,
       mimeType,
       fileName,
     );
 
-    const isImageFile =
-      mimeType.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(fileName.toLowerCase());
-    const isPdfFile = mimeType.includes("pdf") || /\.pdf$/i.test(fileName.toLowerCase());
+    const isImageFile = fileMeta.fileKind === "image";
+    const isPdfFile = fileMeta.fileKind === "pdf";
 
     if (isDocumentFile && !extractedTextContent.trim()) {
       return res.status(400).json({
@@ -1162,6 +1340,7 @@ export const scanReceiptAndProcess = async (req, res) => {
 
     // 💾 DB PLACEMENT LOOPS
     const savedExpenses = [];
+    const savedReceived = [];
     for (const transaction of extractedPayload.transactions) {
       try {
         let rawAmount = String(transaction.amount).replace(/[^0-9.]/g, "");
@@ -1177,34 +1356,47 @@ export const scanReceiptAndProcess = async (req, res) => {
           if (guess !== "Other") cat = guess;
         }
 
+        const txType =
+          transaction.transactionType || resolveTransactionType(transaction.description);
+
         const automatedExpense = new Expense({
           userId,
           description: transaction.description || `${cat} Transaction`,
           amount: finalAmount,
           category: cat,
           date: new Date(),
+          transactionType: txType,
         });
 
         const saved = await automatedExpense.save();
-        savedExpenses.push(saved);
-
-        if (typeof checkBudgetThresholds === "function") {
-          await checkBudgetThresholds(userId, saved.category, saved.amount).catch(() => {});
+        if (txType === "received") {
+          savedReceived.push(saved);
+        } else {
+          savedExpenses.push(saved);
+          if (typeof checkBudgetThresholds === "function") {
+            await checkBudgetThresholds(userId, saved.category, saved.amount).catch(() => {});
+          }
         }
       } catch (dbErr) {
         console.error("DB Save Item Failure:", dbErr.message);
       }
     }
 
-    if (savedExpenses.length === 0) {
+    const allSaved = [...savedExpenses, ...savedReceived];
+    if (allSaved.length === 0) {
       return res.status(400).json({ msg: "No valid expense parameters could be parsed from this document asset." });
     }
 
-    // 📊 RECALCULATE MONTHLY PROGRESS BUDGET METRICS
+    // 📊 RECALCULATE MONTHLY PROGRESS BUDGET METRICS (expenses only)
     const monthlyBudgetCap = 10000;
     const objectId = new mongoose.Types.ObjectId(userId);
     const rawAggregatedSums = await Expense.aggregate([
-      { $match: { userId: objectId } },
+      {
+        $match: {
+          userId: objectId,
+          $or: [{ transactionType: "expense" }, { transactionType: { $exists: false } }],
+        },
+      },
       { $group: { _id: null, totalSpent: { $sum: "$amount" } } },
     ]);
 
@@ -1219,15 +1411,16 @@ export const scanReceiptAndProcess = async (req, res) => {
     }
 
     return res.status(200).json({
-      msg: usedLocalOcr
-        ? isPdfFile
-          ? "PDF processed with local OCR (AI quota unavailable). 🎉"
-          : "Image processed with local OCR (AI quota unavailable). 🎉"
-        : "Document processed completely and successfully! 🎉",
-      data: savedExpenses,
+      msg: successMessageForScan(fileMeta.fileKind, usedLocalOcr),
+      data: allSaved,
       summary: {
-        transactionsScanned: savedExpenses.length,
+        fileKind: fileMeta.fileKind,
+        fileName,
+        transactionsScanned: allSaved.length,
+        expensesCount: savedExpenses.length,
+        receivedCount: savedReceived.length,
         totalAmount: savedExpenses.reduce((sum, exp) => sum + exp.amount, 0),
+        receivedAmount: savedReceived.reduce((sum, exp) => sum + exp.amount, 0),
         categories: [...new Set(savedExpenses.map((exp) => exp.category))],
       },
       alert: systemAlertNotification,
