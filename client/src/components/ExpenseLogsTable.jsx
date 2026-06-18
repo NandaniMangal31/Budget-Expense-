@@ -1,5 +1,9 @@
 export default function ExpenseLogsTable({ 
   displayExpenses, 
+  totalCount = 0,
+  page = 1,
+  totalPages = 1,
+  onPageChange,
   getCategoryStyles, 
   formatAdvancedAmount, 
   onDeleteExpense, 
@@ -27,7 +31,7 @@ export default function ExpenseLogsTable({
               </button>
             )}
             <span className="bg-slate-100 text-slate-600 font-bold text-[10px] px-2 py-1 rounded-md">
-              {displayExpenses?.length || 0} Logs
+              {totalCount || displayExpenses?.length || 0} Logs
             </span>
           </div>
         </div>
@@ -114,6 +118,30 @@ export default function ExpenseLogsTable({
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && onPageChange && (
+        <div className="p-3 border-t border-slate-100 bg-white flex items-center justify-between gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            className="text-[10px] font-bold px-2.5 py-1 rounded border border-slate-200 disabled:opacity-40"
+          >
+            Prev
+          </button>
+          <span className="text-[10px] text-slate-500 font-medium">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            className="text-[10px] font-bold px-2.5 py-1 rounded border border-slate-200 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

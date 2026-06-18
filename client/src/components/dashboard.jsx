@@ -11,6 +11,9 @@ import CategoryAnalysis from "./CategoryAnalysis";
 import ExpenseLogsTable from "./ExpenseLogsTable";
 import ReceivedLogsTable from "./ReceivedLogsTable";
 import ProfileModal from "./ProfileModal";
+import InsightsPanel from "./InsightsPanel";
+
+const LOGS_PAGE_SIZE = 25;
 
 // Helper safely extracted outside component cycle to avoid redundant re-initialization
 const getStoredUser = () => {
@@ -38,6 +41,10 @@ export default function Dashboard() {
   const [deletingId, setDeletingId] = useState(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [isDeletingAllReceived, setIsDeletingAllReceived] = useState(false);
+  const [insights, setInsights] = useState([]);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+  const [expensePage, setExpensePage] = useState(1);
+  const [receivedPage, setReceivedPage] = useState(1);
 
   const [targetInputs, setTargetInputs] = useState({
     totalBudget: "",
@@ -142,7 +149,8 @@ export default function Dashboard() {
       ]);
 
       if (resExpenses.status === "fulfilled" && resExpenses.value.data) {
-        setExpenses(resExpenses.value.data);
+        const payload = resExpenses.value.data;
+        setExpenses(Array.isArray(payload) ? payload : payload.data || []);
       }
 
       if (resBudget.status === "fulfilled" && resBudget.value.data) {
@@ -188,97 +196,107 @@ export default function Dashboard() {
     if (!userId) return;
     try {
       const res = await API.get(`/expenses/${userId}`);
-      if (res.data) setExpenses(res.data);
+      const payload = res.data;
+      if (payload) setExpenses(Array.isArray(payload) ? payload : payload.data || []);
     } catch (err) {
       console.error("Failed to refresh logs:", err);
     }
   };
 
+  const fetchInsights = useCallback(async () => {
+    if (!userId) return;
+    try {
+      setLoadingInsights(true);
+      const res = await API.get(`/expenses/${userId}/insights`);
+      if (res.data?.insights) setInsights(res.data.insights);
+    } catch (err) {
+      console.error("Failed to load insights:", err);
+    } finally {
+      setLoadingInsights(false);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    fetchInsights();
+  }, [fetchInsights, expenses.length]);
+
 const handleUniversalFileScan = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const files = Array.from(e.target.files || []);
+  if (!files.length) return;
 
-  const fileNameLower = file.name.toLowerCase();
-  
-  // 🛡️ Guardrail: Stop users early if they upload obvious configuration/help sheets
-  if (fileNameLower.includes("- settings") || fileNameLower.includes("- help") || fileNameLower.includes("- copy")) {
-    alert("⚠️ Sheet Mismatch Detected\nIt looks like you uploaded a Settings or Help sheet. Please choose the sheet containing your actual transaction entries (e.g., Register or Ledger).");
-    e.target.value = "";
-    return;
-  }
-
-  const fileExtension = file.name.split(".").pop().toLowerCase();
   const allowedExtensions = [
-    "jpg",
-    "jpeg",
-    "png",
-    "webp",
-    "gif",
-    "pdf",
-    "xlsx",
-    "xls",
-    "csv",
-    "docx",
-    "doc",
-    "rtf",
-    "txt",
+    "jpg", "jpeg", "png", "webp", "gif", "pdf", "xlsx", "xls", "csv", "docx", "doc", "rtf", "txt",
   ];
 
-  if (!allowedExtensions.includes(fileExtension)) {
-    alert(
-      `❌ Unsupported File Type (${file.name})\n\nAllowed formats:\nImages (jpg, png, webp, gif)\nPDF\nWord (doc, docx)\nExcel (xls, xlsx, csv)\nText (txt, rtf)`,
-    );
+  for (const file of files) {
+    const fileNameLower = file.name.toLowerCase();
+    if (fileNameLower.includes("- settings") || fileNameLower.includes("- help") || fileNameLower.includes("- copy")) {
+      alert(`⚠️ Skipped ${file.name}: Settings/Help sheets are not transaction data.`);
+      continue;
+    }
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (!allowedExtensions.includes(ext)) {
+      alert(`❌ Skipped ${file.name}: unsupported file type.`);
+      continue;
+    }
+  }
+
+  const validFiles = files.filter((file) => {
+    const fileNameLower = file.name.toLowerCase();
+    const ext = file.name.split(".").pop().toLowerCase();
+    return allowedExtensions.includes(ext) &&
+      !fileNameLower.includes("- settings") &&
+      !fileNameLower.includes("- help") &&
+      !fileNameLower.includes("- copy");
+  });
+
+  if (!validFiles.length) {
     e.target.value = "";
     return;
   }
 
   setUploading(true);
   try {
-    const formData = new FormData();
-    formData.append("file", file);
-
     const activeToken = localStorage.getItem("token");
+    const headers = { ...(activeToken && { Authorization: `Bearer ${activeToken}` }) };
 
-    const res = await API.post("/expenses/scan", formData, {
-      headers: {
-        ...(activeToken && { Authorization: `Bearer ${activeToken}` }),
-      },
-      // Large PDFs/images may need extra time for OCR processing
-      timeout: 120000,
-    });
+    let res;
+    if (validFiles.length === 1) {
+      const formData = new FormData();
+      formData.append("file", validFiles[0]);
+      res = await API.post("/expenses/scan", formData, { headers, timeout: 120000 });
+    } else {
+      const formData = new FormData();
+      validFiles.forEach((file) => formData.append("files", file));
+      res = await API.post("/expenses/scan/batch", formData, { headers, timeout: 300000 });
+    }
 
-    const serverSuccessOutput = res.data?.msg || res.data?.message || "Document processed successfully!";
-    const fileKind = res.data?.summary?.fileKind || fileExtension;
-    const expensesImported =
-      res.data?.summary?.expensesCount ??
-      res.data?.data?.filter((item) => item.transactionType !== "received").length ??
-      0;
-    const receivedImported = res.data?.summary?.receivedCount ?? 0;
+    const summary = res.data?.summary || {};
+    const expensesImported = summary.expensesCount ??
+      res.data?.data?.filter((item) => item.transactionType !== "received").length ?? 0;
+    const receivedImported = summary.receivedCount ?? 0;
+    const filesProcessed = summary.filesProcessed || validFiles.length;
 
     alert(
-      `🎉 ${serverSuccessOutput}\n\nFile type: ${fileKind}\nExpenses imported: ${expensesImported}\nReceived imported: ${receivedImported}`,
+      `🎉 ${res.data?.msg || "Documents processed successfully!"}\n\nFiles: ${filesProcessed}\nExpenses: ${expensesImported}\nIncome/Received: ${receivedImported}`,
     );
 
-    if (typeof refreshExpenses === 'function') {
-      await refreshExpenses();
-    }
+    await refreshExpenses();
+    await fetchInsights();
   } catch (apiErr) {
-    console.error("🚨 API Engine Communication Error Trace:", apiErr);
-    
-    const serverErrMsg = 
-      apiErr.response?.data?.msg || 
-      apiErr.response?.data?.message || 
+    console.error("API Engine Communication Error:", apiErr);
+    const serverErrMsg =
+      apiErr.response?.data?.msg ||
+      apiErr.response?.data?.message ||
       apiErr.response?.data?.error;
-
-    // 🎯 FIX: Clear user notification if a file contains zero transaction entries
     if (apiErr.response?.status === 400) {
-      alert(`⚠️ Scan Warning: ${serverErrMsg}\n\nTip: Ensure the document contains visible numeric columns with clear transaction amounts or values.`);
+      alert(`⚠️ Scan Warning: ${serverErrMsg}`);
     } else {
-      alert(`❌ Upload Failure: ${serverErrMsg || "File processing execution parameters failed. Verify server cluster log files."}`);
+      alert(`❌ Upload Failure: ${serverErrMsg || "File processing failed."}`);
     }
   } finally {
     setUploading(false);
-    e.target.value = ""; 
+    e.target.value = "";
   }
 };
 
@@ -389,6 +407,16 @@ const handleUniversalFileScan = async (e) => {
     [expenseLogs, parseSafeAmount],
   );
 
+  const totalIncome = useMemo(
+    () => receivedLogs.reduce((sum, item) => sum + parseSafeAmount(item.amount), 0),
+    [receivedLogs, parseSafeAmount],
+  );
+
+  const netSavings = useMemo(
+    () => totalIncome - totalExpenses,
+    [totalIncome, totalExpenses],
+  );
+
   const remainingBudget = useMemo(
     () => parsedMonthlyBudget - totalExpenses,
     [parsedMonthlyBudget, totalExpenses],
@@ -419,6 +447,19 @@ const handleUniversalFileScan = async (e) => {
     () => (receivedLogs.length > 0 ? [...receivedLogs].reverse() : []),
     [receivedLogs],
   );
+
+  const paginatedExpenses = useMemo(() => {
+    const start = (expensePage - 1) * LOGS_PAGE_SIZE;
+    return displayExpenses.slice(start, start + LOGS_PAGE_SIZE);
+  }, [displayExpenses, expensePage]);
+
+  const paginatedReceived = useMemo(() => {
+    const start = (receivedPage - 1) * LOGS_PAGE_SIZE;
+    return displayReceived.slice(start, start + LOGS_PAGE_SIZE);
+  }, [displayReceived, receivedPage]);
+
+  const expenseTotalPages = Math.max(1, Math.ceil(displayExpenses.length / LOGS_PAGE_SIZE));
+  const receivedTotalPages = Math.max(1, Math.ceil(displayReceived.length / LOGS_PAGE_SIZE));
 
   const getCategoryStyles = useCallback((categoryName) => {
     const normalized = (categoryName || "").toLowerCase().trim();
@@ -588,11 +629,12 @@ const handleUniversalFileScan = async (e) => {
                   : "Universal AI Smart Scanner: Upload Document or Capture Receipt"}
               </span>
               <span className="block text-xs text-slate-400 mt-1">
-                Images · PDF · Word · Excel · CSV · TXT · RTF
+                Images · PDF · Word · Excel · CSV · TXT · RTF · Multi-file supported
               </span>
             </div>
             <input
               type="file"
+              multiple
               accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.xlsx,.xls,.csv,.doc,.docx,.rtf,.txt,image/*,application/pdf"
               onChange={handleUniversalFileScan}
               className="hidden"
@@ -606,9 +648,17 @@ const handleUniversalFileScan = async (e) => {
         <MetricCards
           totalBudget={budgetConfig.totalBudget || "0"}
           totalExpenses={totalExpenses}
+          totalIncome={totalIncome}
+          netSavings={netSavings}
           remainingBudget={remainingBudget}
           parsedMonthlyBudget={parsedMonthlyBudget}
           formatAdvancedAmount={formatAdvancedAmount}
+        />
+
+        <InsightsPanel
+          insights={insights}
+          loading={loadingInsights}
+          onRefresh={fetchInsights}
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start w-full">
@@ -625,7 +675,11 @@ const handleUniversalFileScan = async (e) => {
           </div>
           <div className="w-full flex flex-col gap-6">
             <ExpenseLogsTable
-              displayExpenses={displayExpenses}
+              displayExpenses={paginatedExpenses}
+              totalCount={displayExpenses.length}
+              page={expensePage}
+              totalPages={expenseTotalPages}
+              onPageChange={setExpensePage}
               getCategoryStyles={getCategoryStyles}
               formatAdvancedAmount={formatAdvancedAmount}
               onDeleteExpense={handleDeleteExpense}
@@ -634,7 +688,11 @@ const handleUniversalFileScan = async (e) => {
               isDeletingAll={isDeletingAll}
             />
             <ReceivedLogsTable
-              displayReceived={displayReceived}
+              displayReceived={paginatedReceived}
+              totalCount={displayReceived.length}
+              page={receivedPage}
+              totalPages={receivedTotalPages}
+              onPageChange={setReceivedPage}
               formatAdvancedAmount={formatAdvancedAmount}
               onDeleteExpense={handleDeleteExpense}
               deletingId={deletingId}

@@ -1,5 +1,9 @@
 export default function ReceivedLogsTable({
   displayReceived,
+  totalCount = 0,
+  page = 1,
+  totalPages = 1,
+  onPageChange,
   formatAdvancedAmount,
   onDeleteExpense,
   deletingId,
@@ -28,7 +32,7 @@ export default function ReceivedLogsTable({
               </button>
             )}
             <span className="bg-emerald-100 text-emerald-700 font-bold text-[10px] px-2 py-1 rounded-md shrink-0">
-              {displayReceived?.length || 0} Logs
+              {totalCount || displayReceived?.length || 0} Logs
             </span>
           </div>
         </div>
@@ -105,6 +109,30 @@ export default function ReceivedLogsTable({
           </tbody>
         </table>
       </div>
+
+      {totalPages > 1 && onPageChange && (
+        <div className="p-3 border-t border-emerald-100 bg-white flex items-center justify-between gap-2 shrink-0">
+          <button
+            type="button"
+            disabled={page <= 1}
+            onClick={() => onPageChange(page - 1)}
+            className="text-[10px] font-bold px-2.5 py-1 rounded border border-emerald-200 disabled:opacity-40"
+          >
+            Prev
+          </button>
+          <span className="text-[10px] text-emerald-600 font-medium">
+            Page {page} of {totalPages}
+          </span>
+          <button
+            type="button"
+            disabled={page >= totalPages}
+            onClick={() => onPageChange(page + 1)}
+            className="text-[10px] font-bold px-2.5 py-1 rounded border border-emerald-200 disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }

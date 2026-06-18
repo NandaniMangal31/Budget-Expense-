@@ -30,6 +30,7 @@ const expenseSchema = new mongoose.Schema({
       "Bills & Utilities",
       "Entertainment",
       "Healthcare",
+      "Education",
       "Insurance",
       "Investment",
       "Cash Withdrawal",

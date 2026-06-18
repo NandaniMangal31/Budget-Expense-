@@ -31,6 +31,10 @@ Categorize the incoming user purchase or transaction text into EXACTLY one of th
 - "Shopping"
 - "Bills & Utilities"
 - "Entertainment"
+- "Healthcare"
+- "Education"
+- "Investment"
+- "Groceries"
 - "Other"
 
 CRITICAL: Return ONLY the exact string value from the list above. Do not include periods, extra spaces, explanation details, or additional formatting markdown blocks.`,
@@ -46,7 +50,10 @@ CRITICAL: Return ONLY the exact string value from the list above. Do not include
     const finalCategory = response.choices[0]?.message?.content?.replace(/['"]/g, "").trim();
     
     // Fallback block mechanism just in case LLM outputs an unmapped key value
-    const validCategories = ["Food & Drinks", "Travel & Transport", "Shopping", "Bills & Utilities", "Entertainment", "Other"];
+    const validCategories = [
+      "Food & Drinks", "Travel & Transport", "Shopping", "Bills & Utilities",
+      "Entertainment", "Healthcare", "Education", "Investment", "Groceries", "Other",
+    ];
     return validCategories.includes(finalCategory) ? finalCategory : "Other";
 
   } catch (error) {

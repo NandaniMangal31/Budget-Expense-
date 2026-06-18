@@ -104,6 +104,7 @@ export default function ExpenseForm({ refresh }) {
               <option value="Bills & Utilities">🧾 Bills & Utilities</option>
               <option value="Entertainment">🎬 Entertainment</option>
               <option value="Healthcare">🏥 Healthcare</option>
+              <option value="Education">📚 Education</option>
               <option value="Insurance">🛡️ Insurance</option>
               <option value="Investment">📈 Investment</option>
               <option value="Cash Withdrawal">🏧 Cash Withdrawal</option>

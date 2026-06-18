@@ -10,7 +10,16 @@ import sharp from "sharp";
 import { PDFParse } from "pdf-parse";
 import { pdf as pdfToImages } from "pdf-to-img";
 import Expense from "../models/Expense.js";
+import Budget from "../models/Budget.js";
 import { checkBudgetThresholds } from "../utils/budgetAlertEngine.js";
+import { SCAN_CATEGORIES, categorizeByMerchantRules } from "../constants/categories.js";
+import {
+  isFailedTransactionLine,
+  isFailedTransactionBlock,
+  isLikelyReferenceNumber,
+  INCOME_KEYWORDS,
+} from "../utils/transactionValidation.js";
+import { buildFinancialSummary, generateLocalInsights } from "../utils/financialInsights.js";
 
 // ≡ƒº▒ SECURE KEY RESOLUTION LAYER
 const getGeminiKey = () => {
@@ -51,35 +60,42 @@ const listAvailableModels = async (apiKey) => {
   }
 };
 
-const RECEIVED_KEYWORDS =
-  /\b(received\s+from|received\s+on|received\s+yesterday|received\s+today|money\s+received|payment\s+received|credited\s+to|credited\s+on|credit\s+from|refund(?:ed)?|reversal|reversed|cashback|salary|deposit|money\s+in|upi\s+in)\b/i;
+const RECEIVED_KEYWORDS = INCOME_KEYWORDS;
 
 const SENT_KEYWORDS =
   /\b(sent\s+to|sent\s+on|sent\s+yesterday|sent\s+today|paid\s+to|paid\s+on|paid\s+yesterday|paid\s+today|debited\s+from|debited\s+on|money\s+sent\s+to|payment\s+to)\b/i;
 
-const isSentAnchorLine = (line) =>
-  /^(money\s+sent\s+to|sent|paid|debited|payment\s+to)\b/i.test(String(line || "").trim());
+const isSentAnchorLine = (line) => {
+  const t = String(line || "").trim();
+  if (isCompactPaytmStatusLine(t)) return false;
+  return /^(money\s+sent\s+to|debited|payment\s+to)\b/i.test(t);
+};
 
-const isReceivedAnchorLine = (line) =>
-  /^(money\s+received|received\s+from|received|credited|refund)\b/i.test(String(line || "").trim());
+const isReceivedAnchorLine = (line) => {
+  const t = String(line || "").trim();
+  if (isCompactPaytmStatusLine(t)) return false;
+  return /^(money\s+received|received\s+from|credited|refund)\b/i.test(t);
+};
+
+const isPaytmPlusAmountLine = (line) => /^\+\s*(?:[₹¥]|rs\.?|inr)?\s*\d/i.test(String(line || "").trim());
+const isPaytmMinusAmountLine = (line) => /^-\s*(?:[₹¥]|rs\.?|inr)?\s*\d/i.test(String(line || "").trim());
+
+const isCompactPaytmStatusLine = (line) =>
+  /^(sent|paid|received)\s+(on|yesterday|today)\b/i.test(String(line || "").trim()) ||
+  /^(sent|paid|received)\s+\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(
+    String(line || "").trim(),
+  );
+
+const isReceivedAmountContext = (line, nearbyLines = []) => {
+  const text = `${line || ""} ${nearbyLines.join(" ")}`.toLowerCase();
+  if (isPaytmPlusAmountLine(line)) return true;
+  if (isReceivedAnchorLine(line) || RECEIVED_KEYWORDS.test(text)) return true;
+  if (/money\s+received/i.test(text)) return true;
+  if (/\bcredited\s+to\b/i.test(text)) return true;
+  return false;
+};
 
 const isUpiAnchorLine = (line) => isSentAnchorLine(line) || isReceivedAnchorLine(line);
-
-const isFailedTransactionLine = (line) =>
-  /\b(failed|failure|declined|rejected|cancelled|canceled|unsuccessful|could\s+not|unable\s+to)\b/i.test(
-    String(line || ""),
-  ) && !/\b(success|successful|completed)\b/i.test(String(line || ""));
-
-const isFailedTransactionBlock = (blockLines = []) => {
-  const blockText = blockLines.map((l) => String(l || "")).join(" ").toLowerCase();
-  if (/\b(transaction\s+)?failed\b|\bfailed\s+to\b|\bdeclined\b|\brejected\b|\bunsuccessful\b/.test(blockText)) {
-    return true;
-  }
-  if (/\bpending\b/.test(blockText) && !/\b(success|successful|completed|paid|sent|received)\b/.test(blockText)) {
-    return true;
-  }
-  return blockLines.some((line) => isFailedTransactionLine(line));
-};
 
 const isReceivedTransaction = (description, lineText = "") => {
   const text = `${description || ""} ${lineText || ""}`.toLowerCase();
@@ -99,10 +115,10 @@ const isJunkDescription = (description) => {
   if (!desc) return true;
 
   const alpha = desc.replace(/[^a-zA-Z]/g, "");
-  if (alpha.length < 2) return true;
+  if (alpha.length < 3) return true;
 
   if (
-    /^(purchase|transaction|item|expense|unknown|misc|general|n\/a|null|undefined|untitled)$/i.test(
+    /^(on|at|to|from|the|in|of|paid|sent|received|yesterday|today|failed|pending|success|money|transfer|payment|purchase|transaction|item|expense|unknown|misc|general|n\/a|null|undefined|untitled)$/i.test(
       desc,
     )
   ) {
@@ -110,12 +126,15 @@ const isJunkDescription = (description) => {
   }
 
   if (/^(sent|paid|received|credited|refund|debit|credit)$/i.test(desc)) return true;
+  if (/^(paid|received|sent)\s+(on|yesterday|today)\b/i.test(desc)) return true;
   if (/^\d+([.,]\d+)?$/.test(desc)) return true;
   if (/^(gstin|invoice|bill no|page \d|total|subtotal|balance)/i.test(desc)) return true;
   if (/^(am|pm|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)$/i.test(desc)) return true;
 
   return false;
 };
+
+const isValidTransactionName = (name) => !isJunkDescription(name);
 
 // DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
 const autoCategorize = (description) => {
@@ -188,22 +207,19 @@ const autoCategorize = (description) => {
 
   if (/\b(insurance|lic|policy premium)\b/i.test(desc)) return "Insurance";
 
+  if (/\b(school|college|university|tuition|course|udemy|coursera|education|byju)\b/i.test(desc)) {
+    return "Education";
+  }
+
+  const merchantCat = categorizeByMerchantRules(desc);
+  if (merchantCat !== "Other") return merchantCat;
+
   return "Other";
 };
 
 const normalizeModelName = (name) => String(name).replace(/^models\//, "");
 
-const ALLOWED_CATEGORIES = [
-  "Groceries",
-  "Food & Drinks",
-  "Travel & Transport",
-  "Shopping",
-  "Bills & Utilities",
-  "Entertainment",
-  "Healthcare",
-  "Insurance",
-  "Other",
-];
+const ALLOWED_CATEGORIES = [...SCAN_CATEGORIES, "Groceries", "Insurance", "Cash Withdrawal", "Transfer"];
 
 const resolveCategory = (description, aiCategory = null) => {
   const autoCat = autoCategorize(description);
@@ -526,6 +542,7 @@ const sanitizeAiTransactions = (transactions) => {
     if (!description) description = "Purchase";
     if (isJunkDescription(description)) continue;
     if (isFailedTransactionLine(description)) continue;
+    if (/\bfailed\b/i.test(String(tx.description || "") + String(tx.category || ""))) continue;
     if (isFormulaOrTotal(description) && !/\b(received|paid|sent|credited|debited|money|upi|transaction)\b/i.test(description)) continue;
 
     const txType =
@@ -660,6 +677,8 @@ const isDateOrTimeToken = (token) => {
 
 const isLikelyExpenseAmount = (token, line) => {
   if (isDateOrTimeToken(token)) return false;
+  if (isLikelyReferenceNumber(token, line)) return false;
+  if (isFailedTransactionLine(line)) return false;
 
   const normalized = token.replace(/,/g, "");
   const amount = Number(normalized);
@@ -710,8 +729,30 @@ const scoreAmountCandidate = (token, amount, index, lineLength, line) => {
 };
 
 const extractAmountFromLine = (line) => {
+  const plusMatch = line.match(
+    /^\+\s*(?:₹|¥|rs\.?|inr)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+  );
+  if (plusMatch) {
+    const token = plusMatch[1];
+    const amount = Number(token.replace(/,/g, ""));
+    if (amount >= 1) {
+      return { amountToken: plusMatch[0], amount, isReceived: true };
+    }
+  }
+
+  const minusMatch = line.match(
+    /^-\s*(?:₹|¥|rs\.?|inr)?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+  );
+  if (minusMatch) {
+    const token = minusMatch[1];
+    const amount = Number(token.replace(/,/g, ""));
+    if (isLikelyExpenseAmount(token, line)) {
+      return { amountToken: minusMatch[0], amount, isExpense: true };
+    }
+  }
+
   const currencyMatch = line.match(
-    /(?:Γé╣|rs\.?|inr|\$)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /(?:₹|rs\.?|inr|\$)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
   );
   if (currencyMatch) {
     const token = currencyMatch[1];
@@ -762,10 +803,11 @@ const cleanLineDescription = (line, amountToken) => {
 // ≡ƒô▒ Paytm / PhonePe / GPay screenshot parser ΓÇö handles multi-line UPI history rows.
 const parseUpiAppScreenshotText = (text) => {
   const upiSignalCount =
-    (text.match(/sent\s+(yesterday|on\b)|paid\s+on\b|received\s+on\b|money transfer|money sent to|received from|payment to|debited from|credited to/gi) || [])
-      .length;
+    (text.match(
+      /sent\s+(yesterday|on\b|today)|paid\s+on\b|received\s+(on|yesterday|today)\b|money transfer|money sent to|received from|payment to|debited from|credited to|money received/gi,
+    ) || []).length;
   const isUpiApp =
-    /paytm|phonepe|gpay|google pay|upi lite|payment history|money transfer|balance\s*&\s*history|transaction history|spend analytics/i.test(
+    /paytm|phonepe|gpay|google pay|bhim|upi lite|payment history|money transfer|balance\s*&\s*history|transaction history|spend analytics|credited to|debited from|payment to|money received/i.test(
       text,
     ) || upiSignalCount >= 2;
 
@@ -775,6 +817,22 @@ const parseUpiAppScreenshotText = (text) => {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l.length > 1);
+
+  const failedZoneIndexes = new Set();
+  for (let i = 0; i < lines.length; i++) {
+    if (isFailedTransactionLine(lines[i]) || /^\s*failed\s*$/i.test(lines[i])) {
+      for (let k = Math.max(0, i - 6); k <= Math.min(lines.length - 1, i + 6); k++) {
+        failedZoneIndexes.add(k);
+      }
+    }
+  }
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^payment\s+to\b/i.test(lines[i])) continue;
+    const segment = lines.slice(i, Math.min(i + 10, lines.length));
+    if (segment.some((l) => isFailedTransactionLine(l) || /^\s*failed\s*$/i.test(l))) {
+      for (let k = i; k < Math.min(i + 10, lines.length); k++) failedZoneIndexes.add(k);
+    }
+  }
 
   const transactions = [];
   const seen = new Set();
@@ -801,6 +859,7 @@ const parseUpiAppScreenshotText = (text) => {
 
   const mapUpiTagCategory = (tagLine) => {
     const t = (tagLine || "").toLowerCase();
+    if (/money\s+received|received/i.test(t)) return "Other";
     if (/grocer/i.test(t)) return "Groceries";
     if (/food|restaurant|cafe|dining/i.test(t)) return "Food & Drinks";
     if (/travel|fuel|metro|cab|uber|ola/i.test(t)) return "Travel & Transport";
@@ -819,6 +878,7 @@ const parseUpiAppScreenshotText = (text) => {
       .trim();
 
   const isNoiseLine = (line) =>
+    isCompactPaytmStatusLine(line) ||
     /^(balance|history|your accounts|payment history|canara|upi lite|ac no|deck|paytm|total spent)/i.test(
       line,
     ) ||
@@ -851,13 +911,12 @@ const parseUpiAppScreenshotText = (text) => {
 
   const findCategoryNear = (anchorIndex) => {
     for (let j = anchorIndex + 1; j < Math.min(anchorIndex + 4, lines.length); j++) {
-      if (/money transfer|groceries|food|shop|travel|bill|entertain/i.test(lines[j])) {
+      if (/money transfer|groceries|food|shop|travel|bill|entertain|money received|shopping/i.test(lines[j])) {
         return mapUpiTagCategory(lines[j]);
       }
     }
     for (let j = anchorIndex - 1; j >= Math.max(0, anchorIndex - 3); j--) {
-      if (/money transfer|groceries|food|shop|travel|bill|entertain/i.test(lines[j])) {
-        return mapUpiTagCategory(lines[j]);
+      if (/money transfer|groceries|food|shop|travel|bill|entertain|money received|shopping/i.test(lines[j])) {        return mapUpiTagCategory(lines[j]);
       }
     }
     return "Other";
@@ -872,9 +931,18 @@ const parseUpiAppScreenshotText = (text) => {
     forcedTxType = null,
   ) => {
     if (!name || !amount || amount < 5) return;
-    if (isJunkDescription(name)) return;
+    if (!isValidTransactionName(name)) return;
     if (/^(money sent to|money received|received from|spend analytics|transaction history|total cashback|failed|pending)$/i.test(String(name).trim())) {
       return;
+    }
+
+    if (lineIndexes.some((idx) => failedZoneIndexes.has(idx))) return;
+
+    if (lineIndexes.length > 0) {
+      const minIdx = Math.min(...lineIndexes);
+      const maxIdx = Math.max(...lineIndexes);
+      const wideBlock = lines.slice(Math.max(0, minIdx - 2), Math.min(lines.length, maxIdx + 6));
+      if (isFailedTransactionBlock(wideBlock)) return;
     }
 
     const txType = resolveTransactionType(name, sourceLine, forcedTxType);
@@ -918,21 +986,25 @@ const parseUpiAppScreenshotText = (text) => {
     let name = null;
     const amountFragments = [];
 
-    const stripAnchorPrefix = (line) =>
-      line
+    const stripAnchorPrefix = (line) => {
+      const t = String(line || "").trim();
+      if (isCompactPaytmStatusLine(t)) return "";
+      return t
         .replace(/^money\s+sent\s+to\s*/i, "")
         .replace(/^money\s+received\s*/i, "")
         .replace(/^received\s+from\s*/i, "")
-        .replace(/^(sent|paid|received|credited|refund)\b\s*/i, "")
+        .replace(/^(credited|refund)\b\s*/i, "")
         .trim();
+    };
 
     const anchorTail = stripAnchorPrefix(anchorText);
     if (anchorTail && !isOcrNoiseLine(anchorTail)) {
       const tailDigits = anchorTail.match(/(\d{1,3}(?:,\d{3})+|\d{2,6})/);
       if (tailDigits && !/[A-Za-z]{3,}/.test(anchorTail)) {
         amountFragments.push(tailDigits[1]);
-      } else if (/[A-Za-z]{2,}/.test(anchorTail)) {
-        name = cleanPersonName(anchorTail.replace(/\d+.*$/, "").trim());
+      } else if (/[A-Za-z]{3,}/.test(anchorTail)) {
+        const candidateName = cleanPersonName(anchorTail.replace(/\d+.*$/, "").trim());
+        if (isValidTransactionName(candidateName)) name = candidateName;
       }
     }
 
@@ -967,7 +1039,10 @@ const parseUpiAppScreenshotText = (text) => {
       }
 
       if (/[A-Za-z]{3,}/.test(candidate) && !isFailedTransactionLine(candidate)) {
-        name = name || cleanPersonName(candidate);
+        const candidateName = cleanPersonName(candidate);
+        if (isValidTransactionName(candidateName)) {
+          name = name || candidateName;
+        }
         const trailingDigits = candidate.match(/(\d{2,6})\s*$/);
         if (trailingDigits) amountFragments.push(trailingDigits[1]);
       }
@@ -975,7 +1050,7 @@ const parseUpiAppScreenshotText = (text) => {
 
     const contextLine = `${anchorText} ${txType === "received" ? "received credited" : "sent paid"}`;
     const amount = joinSplitAmountFragments(amountFragments, contextLine);
-    if (!name || !amount) return null;
+    if (!name || !amount || !isValidTransactionName(name)) return null;
 
     return { name, amount };
   };
@@ -1005,17 +1080,109 @@ const parseUpiAppScreenshotText = (text) => {
     return best;
   };
 
-  const findNearestAnchorType = (index) => {
-    for (let j = index; j <= Math.min(index + 4, lines.length - 1); j++) {
-      const txType = resolveAnchorTxType(lines[j]);
-      if (txType) return txType;
+  const resolvePaytmRowType = (amountLineIdx, amountLine) => {
+    const rangeStart = Math.max(0, amountLineIdx - 3);
+    const rangeEnd = Math.min(lines.length, amountLineIdx + 5);
+    for (let k = rangeStart; k < rangeEnd; k++) {
+      if (failedZoneIndexes.has(k) || isFailedTransactionLine(lines[k])) return null;
     }
-    for (let j = index - 1; j >= Math.max(0, index - 5); j--) {
-      const txType = resolveAnchorTxType(lines[j]);
-      if (txType) return txType;
+
+    const range = lines.slice(rangeStart, rangeEnd);
+    if (isFailedTransactionBlock(range)) return null;
+
+    for (const l of range) {
+      if (/^(sent|paid)\s+(on|yesterday|today)/i.test(l)) return "expense";
+      if (/^money\s+sent\s+to\b/i.test(l) || /^payment\s+to\b/i.test(l)) return "expense";
+      if (/money\s+transfer/i.test(l) && !/money\s+received/i.test(l)) return "expense";
     }
+    for (const l of range) {
+      if (/^received\s+(on|yesterday|today)/i.test(l) || /money\s+received/i.test(l)) {
+        return "received";
+      }
+      if (/^received\s+from\b/i.test(l)) return "received";
+    }
+
+    if (isPaytmMinusAmountLine(amountLine)) return "expense";
+    if (isPaytmPlusAmountLine(amountLine)) return "received";
     return "expense";
   };
+
+  const findNearestAnchorType = (index) => {
+    const resolveRowTypeFromStatusLines = (start, end) => {
+      for (let j = start; j <= end; j++) {
+        const line = lines[j];
+        if (/^(sent|paid)\s+(on|yesterday|today)/i.test(line)) return "expense";
+        if (/^received\s+(on|yesterday|today)/i.test(line) || /money\s+received/i.test(line)) {
+          return "received";
+        }
+        const txType = resolveAnchorTxType(line);
+        if (txType) return txType;
+      }
+      return null;
+    };
+
+    if (isPaytmPlusAmountLine(lines[index]) || isPaytmMinusAmountLine(lines[index])) {
+      const rowType = resolvePaytmRowType(index, lines[index]);
+      if (rowType) return rowType;
+    }
+
+    const afterType = resolveRowTypeFromStatusLines(index, Math.min(index + 3, lines.length - 1));
+    if (afterType) return afterType;
+
+    const beforeType = resolveRowTypeFromStatusLines(Math.max(0, index - 3), index - 1);
+    if (beforeType) return beforeType;
+
+    return "expense";
+  };
+
+  // Paytm / BHIM signed amount rows: classify using nearby Paid/Received status (skip FAILED blocks).
+  for (let i = 0; i < lines.length; i++) {
+    if (usedLineIndexes.has(i) || failedZoneIndexes.has(i)) continue;
+    const line = lines[i];
+    if (!isPaytmPlusAmountLine(line) && !isPaytmMinusAmountLine(line)) continue;
+
+    const blockLines = lines.slice(Math.max(0, i - 3), Math.min(lines.length, i + 5));
+    if (isFailedTransactionBlock(blockLines)) {
+      blockLines.forEach((_, offset) => usedLineIndexes.add(Math.max(0, i - 3) + offset));
+      continue;
+    }
+
+    const extracted = extractAmountFromLine(line);
+    if (!extracted?.amount) continue;
+
+    const txType = resolvePaytmRowType(i, line);
+    if (!txType) {
+      blockLines.forEach((_, offset) => usedLineIndexes.add(Math.max(0, i - 3) + offset));
+      continue;
+    }
+
+    let name = null;
+    const usedIndexes = [i];
+    for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+      const candidate = lines[j];
+      if (
+        usedLineIndexes.has(j) ||
+        failedZoneIndexes.has(j) ||
+        isNoiseLine(candidate) ||
+        isUpiAnchorLine(candidate) ||
+        isCompactPaytmStatusLine(candidate)
+      ) {
+        continue;
+      }
+      if (isPaytmPlusAmountLine(candidate) || isPaytmMinusAmountLine(candidate)) continue;
+      if (/^[A-Za-z]/.test(candidate)) {
+        const candidateName = cleanPersonName(candidate);
+        if (isValidTransactionName(candidateName)) {
+          name = candidateName;
+          usedIndexes.push(j);
+          break;
+        }
+      }
+    }
+
+    if (!name) continue;
+    pushTransaction(name, extracted.amount, autoCategorize(name), usedIndexes, line, txType);
+  }
 
   // Primary strategy — anchor-driven blocks (Money sent to / Received from / Sent / Paid / Received).
   for (let i = 0; i < lines.length; i++) {
@@ -1059,6 +1226,9 @@ const parseUpiAppScreenshotText = (text) => {
     if (usedLineIndexes.has(i) || !/^(sent|paid)\b/i.test(line)) continue;
     if (isFailedTransactionLine(line)) continue;
 
+    const sentBlock = lines.slice(Math.max(0, i - 4), Math.min(lines.length, i + 2));
+    if (isFailedTransactionBlock(sentBlock)) continue;
+
     let name = null;
     let amount = null;
     const usedIndexes = [i];
@@ -1072,7 +1242,7 @@ const parseUpiAppScreenshotText = (text) => {
       if (isFailedTransactionLine(candidate)) break;
 
       const extracted = extractNameAmountFromLine(candidate);
-      if (extracted) {
+      if (extracted && isValidTransactionName(extracted.name)) {
         name = extracted.name;
         amount = extracted.amount;
         usedIndexes.push(j);
@@ -1086,24 +1256,62 @@ const parseUpiAppScreenshotText = (text) => {
             !/^(sent|paid|received)\b/i.test(prev) &&
             !/money transfer|groceries/i.test(prev)
           ) {
-            name = `${cleanPersonName(prev)} ${name}`.replace(/\s{2,}/g, " ").trim();
-            usedIndexes.push(j - 1);
+            const prevName = cleanPersonName(prev);
+            if (isValidTransactionName(prevName)) {
+              name = `${prevName} ${name}`.replace(/\s{2,}/g, " ").trim();
+              usedIndexes.push(j - 1);
+            }
           }
         }
         break;
       }
+
+      if (isPaytmMinusAmountLine(candidate)) {
+        const amt = extractAmountFromLine(candidate);
+        if (amt?.amount && j - 1 >= 0) {
+          const prevName = cleanPersonName(lines[j - 1]);
+          if (isValidTransactionName(prevName)) {
+            name = prevName;
+            amount = amt.amount;
+            usedIndexes.push(j, j - 1);
+            break;
+          }
+        }
+      }
+
+      if (/^[A-Za-z]/.test(candidate)) {
+        const candidateName = cleanPersonName(candidate);
+        if (isValidTransactionName(candidateName)) {
+          name = candidateName;
+          usedIndexes.push(j);
+          for (let k = j + 1; k < i; k++) {
+            if (isPaytmMinusAmountLine(lines[k])) {
+              const amt = extractAmountFromLine(lines[k]);
+              if (amt?.amount) {
+                amount = amt.amount;
+                usedIndexes.push(k);
+                break;
+              }
+            }
+          }
+          if (name && amount) break;
+        }
+      }
     }
 
-    if (name && amount) {
+    if (name && amount && isValidTransactionName(name)) {
       pushTransaction(name, amount, findCategoryNear(i), usedIndexes, line, "expense");
     }
   }
 
-  // Strategy A2 - Paytm compact UI: "Received yesterday" / "Received on" below the name.
+  // Strategy A2 - Paytm compact UI: "Received on" / "Received yesterday" below the name.
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (usedLineIndexes.has(i) || !/^received\b/i.test(line)) continue;
+    if (usedLineIndexes.has(i) || !/^received\s+(on|yesterday|today)\b/i.test(line)) continue;
     if (isFailedTransactionLine(line)) continue;
+
+    const recvBlock = lines.slice(Math.max(0, i - 4), Math.min(lines.length, i + 2));
+    if (isFailedTransactionBlock(recvBlock)) continue;
 
     let name = null;
     let amount = null;
@@ -1116,14 +1324,30 @@ const parseUpiAppScreenshotText = (text) => {
       if (isFailedTransactionLine(candidate)) break;
 
       const extracted = extractNameAmountFromLine(candidate);
-      if (extracted) {
+      if (extracted && isValidTransactionName(extracted.name)) {
         name = extracted.name;
         amount = extracted.amount;
         usedIndexes.push(j);
         break;
       }
 
-      if (/^[A-Za-z][A-Za-z\s.'-]{2,}$/.test(candidate)) {
+      if (isPaytmPlusAmountLine(candidate)) {
+        const plusAmt = extractAmountFromLine(candidate);
+        if (plusAmt?.amount) {
+          amount = plusAmt.amount;
+          usedIndexes.push(j);
+          if (j - 1 >= 0 && /^[A-Za-z]/.test(lines[j - 1]) && !isNoiseLine(lines[j - 1])) {
+            const prevName = cleanPersonName(lines[j - 1]);
+            if (isValidTransactionName(prevName)) {
+              name = prevName;
+              usedIndexes.push(j - 1);
+              break;
+            }
+          }
+        }
+      }
+
+      if (/^[A-Za-z][A-Za-z\s.'-]{2,}$/.test(candidate) && isValidTransactionName(cleanPersonName(candidate))) {
         name = cleanPersonName(candidate);
         usedIndexes.push(j);
         for (let k = j + 1; k <= i; k++) {
@@ -1138,7 +1362,7 @@ const parseUpiAppScreenshotText = (text) => {
       }
     }
 
-    if (name && amount) {
+    if (name && amount && isValidTransactionName(name)) {
       pushTransaction(name, amount, "Other", usedIndexes, line, "received");
     }
   }
@@ -1151,7 +1375,7 @@ const parseUpiAppScreenshotText = (text) => {
     if (isFailedTransactionLine(lines[i])) continue;
 
     const nearbyType = findNearestAnchorType(i);
-    const nearbyBlock = lines.slice(Math.max(0, i - 2), Math.min(lines.length, i + 4));
+    const nearbyBlock = lines.slice(Math.max(0, i - 2), Math.min(lines.length, i + 6));
     if (isFailedTransactionBlock(nearbyBlock)) continue;
 
     const extracted = extractNameAmountFromLine(lines[i]);
@@ -1172,6 +1396,8 @@ const parseUpiAppScreenshotText = (text) => {
       }
     }
 
+    if (!isValidTransactionName(name)) continue;
+
     pushTransaction(
       name,
       extracted.amount,
@@ -1182,11 +1408,12 @@ const parseUpiAppScreenshotText = (text) => {
     );
   }
 
-  // Strategy C — category tags with nearest anchor type.
+  // Strategy C — category tags with nearest anchor type (incl. Money Received).
   for (let i = 0; i < lines.length; i++) {
-    if (!/money transfer|groceries/i.test(lines[i])) continue;
+    if (!/money transfer|groceries|money received|shopping/i.test(lines[i])) continue;
 
     const category = mapUpiTagCategory(lines[i]);
+    const forcedType = /money\s+received/i.test(lines[i]) ? "received" : null;
     let name = null;
     let amount = null;
 
@@ -1225,8 +1452,10 @@ const parseUpiAppScreenshotText = (text) => {
       }
     }
 
-    if (name && amount) {
-      const nearbyType = findNearestAnchorType(i);
+    if (name && amount && isValidTransactionName(name)) {
+      const nearbyType = forcedType || findNearestAnchorType(i);
+      const tagBlock = lines.slice(Math.max(0, i - 6), Math.min(lines.length, i + 2));
+      if (isFailedTransactionBlock(tagBlock)) continue;
       pushTransaction(name, amount, category, [i], lines[i], nearbyType);
     }
   }
@@ -1489,15 +1718,101 @@ export const addExpense = async (req, res) => {
   }
 };
 
-// 2. ≡ƒöì GET EXPENSES
+// 2. GET EXPENSES (backward compatible; optional ?page=&limit=&type=&summary=1)
 export const getExpenses = async (req, res) => {
   try {
     const { userId } = req.params;
     if (!userId) return res.status(400).json({ msg: "User ID parameter required." });
-    const expenses = await Expense.find({ userId }).sort({ date: -1 });
-    res.json(expenses);
+
+    const page = parseInt(req.query.page, 10);
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const type = req.query.type;
+    const includeSummary = req.query.summary === "1" || req.query.summary === "true";
+
+    const filter = { userId };
+    if (type === "expense") {
+      filter.$or = [{ transactionType: "expense" }, { transactionType: { $exists: false } }];
+    } else if (type === "received") {
+      filter.transactionType = "received";
+    }
+
+    const usePagination = Number.isFinite(page) && page > 0;
+
+    if (usePagination) {
+      const skip = (page - 1) * limit;
+      const [expenses, total] = await Promise.all([
+        Expense.find(filter).sort({ date: -1 }).skip(skip).limit(limit).lean(),
+        Expense.countDocuments(filter),
+      ]);
+
+      const payload = {
+        data: expenses,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit) || 1,
+        },
+      };
+
+      if (includeSummary) {
+        const allForSummary = await Expense.find({ userId }).lean();
+        const budget = await Budget.findOne({ userId }).lean();
+        payload.summary = buildFinancialSummary(allForSummary, budget || {});
+      }
+
+      return res.json(payload);
+    }
+
+    const expenses = await Expense.find(filter).sort({ date: -1 });
+
+    if (includeSummary) {
+      const budget = await Budget.findOne({ userId }).lean();
+      return res.json({
+        data: expenses,
+        summary: buildFinancialSummary(expenses, budget || {}),
+      });
+    }
+
+    return res.json(expenses);
   } catch (err) {
     res.status(500).json({ msg: "Database query error.", error: err.message });
+  }
+};
+
+export const getFinancialSummary = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ msg: "User ID parameter required." });
+
+    const [expenses, budget] = await Promise.all([
+      Expense.find({ userId }).lean(),
+      Budget.findOne({ userId }).lean(),
+    ]);
+
+    return res.json({
+      success: true,
+      summary: buildFinancialSummary(expenses, budget || {}),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, msg: "Summary calculation failed.", error: err.message });
+  }
+};
+
+export const getExpenseInsights = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) return res.status(400).json({ msg: "User ID parameter required." });
+
+    const [expenses, budget] = await Promise.all([
+      Expense.find({ userId }).lean(),
+      Budget.findOne({ userId }).lean(),
+    ]);
+
+    const { insights, summary } = generateLocalInsights(expenses, budget || {});
+    return res.json({ success: true, insights, summary });
+  } catch (err) {
+    res.status(500).json({ success: false, msg: "Insights generation failed.", error: err.message });
   }
 };
 
@@ -1629,16 +1944,41 @@ export const scanReceiptAndProcess = async (req, res) => {
         const aiTransactions = visionResult.transactions || [];
         const ocrTransactions = parseTransactionsFromRawText(ocrText) || [];
         const isUpiScreenshot =
-          /paytm|phonepe|gpay|google pay|money sent to|received from|transaction history|upi lite|payment history/i.test(
+          /bhim|paytm|phonepe|gpay|google pay|money sent to|received from|money received|payment to|transaction history|upi lite|payment history|credited to|debited from/i.test(
             ocrText,
           );
 
-        if (isUpiScreenshot && ocrTransactions.length > 0) {
-          extractedPayload = { transactions: ocrTransactions };
-          usedLocalOcr = true;
-          console.log(
-            `UPI screenshot detected: anchor parser extracted ${ocrTransactions.length} transactions (AI merge skipped).`,
+        if (isUpiScreenshot) {
+          const anchorTx = parseUpiAppScreenshotText(ocrText) || [];
+          const upiTx = dedupeTransactionList(anchorTx.length ? anchorTx : ocrTransactions).filter(
+            (tx) =>
+              !isFailedTransactionLine(tx.description) &&
+              !/\bfailed\b/i.test(`${tx.description || ""} ${tx.category || ""}`),
           );
+
+          if (upiTx.length > 0) {
+            extractedPayload = { transactions: upiTx };
+            usedLocalOcr = true;
+            console.log(
+              `UPI screenshot detected: anchor parser extracted ${upiTx.length} transactions (AI merge skipped).`,
+            );
+          } else {
+            const combined = mergeTransactionLists(aiTransactions, ocrTransactions).filter(
+              (tx) =>
+                !isFailedTransactionLine(tx.description) &&
+                !/\bfailed\b/i.test(`${tx.description || ""} ${tx.category || ""}`),
+            );
+
+            if (combined.length > 0) {
+              extractedPayload = { transactions: combined };
+              usedLocalOcr = ocrTransactions.length > 0;
+              console.log(
+                `Image scan merged ${aiTransactions.length} AI + ${ocrTransactions.length} OCR -> ${combined.length} transactions.`,
+              );
+            } else if (visionResult.error) {
+              lastError = visionResult.error;
+            }
+          }
         } else {
           const combined = mergeTransactionLists(aiTransactions, ocrTransactions);
 
@@ -1776,7 +2116,8 @@ export const scanReceiptAndProcess = async (req, res) => {
     }
 
     // DB PLACEMENT LOOPS
-    const uniqueTransactions = dedupeTransactionList(extractedPayload.transactions);
+    const uniqueTransactions = sanitizeAiTransactions(dedupeTransactionList(extractedPayload.transactions));
+    const crossFileRegistry = safeBody._dedupeRegistry || null;
     const savedExpenses = [];
     const savedReceived = [];
     for (const transaction of uniqueTransactions) {
@@ -1787,6 +2128,9 @@ export const scanReceiptAndProcess = async (req, res) => {
 
         const txType =
           transaction.transactionType || resolveTransactionType(transaction.description);
+
+        const crossKey = normalizeTransactionKey(transaction.description, finalAmount, txType);
+        if (crossFileRegistry?.has(crossKey)) continue;
 
         const category =
           txType === "received"
@@ -1800,9 +2144,11 @@ export const scanReceiptAndProcess = async (req, res) => {
           category,
           date: new Date(),
           transactionType: txType,
+          scannedDocumentName: fileName || null,
         });
 
         const saved = await automatedExpense.save();
+        crossFileRegistry?.add(crossKey);
         if (txType === "received") {
           savedReceived.push(saved);
         } else {
@@ -1821,8 +2167,9 @@ export const scanReceiptAndProcess = async (req, res) => {
       return res.status(400).json({ msg: "No valid expense parameters could be parsed from this document asset." });
     }
 
-    // ≡ƒôè RECALCULATE MONTHLY PROGRESS BUDGET METRICS (expenses only)
-    const monthlyBudgetCap = 10000;
+    // RECALCULATE MONTHLY PROGRESS BUDGET METRICS (expenses only)
+    const userBudget = await Budget.findOne({ userId }).lean();
+    const monthlyBudgetCap = userBudget?.totalBudget > 0 ? userBudget.totalBudget : 10000;
     const objectId = new mongoose.Types.ObjectId(userId);
     const rawAggregatedSums = await Expense.aggregate([
       {
@@ -1863,5 +2210,82 @@ export const scanReceiptAndProcess = async (req, res) => {
   } catch (error) {
     console.error("Pipeline Engine Critical Crash:", error);
     return res.status(500).json({ msg: "Internal application handler scanning failure.", error: error.message });
+  }
+};
+
+// Batch scan — multiple files in one request, unified deduplication
+export const scanMultipleReceipts = async (req, res) => {
+  try {
+    const files = req.files || [];
+    if (!files.length) {
+      return res.status(400).json({ success: false, msg: "No files uploaded.", message: "No files uploaded." });
+    }
+
+    const crossFileRegistry = new Set();
+    const combinedSaved = [];
+    const fileReports = [];
+
+    for (const file of files) {
+      const capture = { status: 200, data: null };
+      const mockRes = {
+        status(code) {
+          capture.status = code;
+          return this;
+        },
+        json(payload) {
+          capture.payload = payload;
+          return this;
+        },
+      };
+
+      const mockReq = {
+        user: req.user,
+        file,
+        body: {
+          mimeType: file.mimetype,
+          scannedDocumentName: file.originalname,
+          imageBuffer: file.buffer.toString("base64"),
+          fileBuffer: file.buffer,
+          _dedupeRegistry: crossFileRegistry,
+        },
+      };
+
+      await scanReceiptAndProcess(mockReq, mockRes);
+      const report = {
+        fileName: file.originalname,
+        success: capture.status >= 200 && capture.status < 300,
+        status: capture.status,
+        msg: capture.payload?.msg || capture.payload?.message,
+        summary: capture.payload?.summary || null,
+        error: capture.status >= 400 ? capture.payload?.msg || capture.payload?.message : null,
+      };
+      fileReports.push(report);
+
+      if (capture.payload?.data?.length) {
+        combinedSaved.push(...capture.payload.data);
+      }
+    }
+
+    const expensesCount = combinedSaved.filter((t) => t.transactionType !== "received").length;
+    const receivedCount = combinedSaved.filter((t) => t.transactionType === "received").length;
+
+    return res.status(200).json({
+      msg: `Processed ${files.length} file(s). Imported ${combinedSaved.length} transaction(s).`,
+      data: combinedSaved,
+      fileReports,
+      summary: {
+        filesProcessed: files.length,
+        transactionsScanned: combinedSaved.length,
+        expensesCount,
+        receivedCount,
+        duplicatesSkippedAcrossFiles: fileReports.reduce(
+          (sum, r) => sum + (r.summary?.duplicatesSkipped || 0),
+          0,
+        ),
+      },
+    });
+  } catch (error) {
+    console.error("Batch scan failure:", error);
+    return res.status(500).json({ success: false, msg: "Batch file processing failed.", error: error.message });
   }
 };

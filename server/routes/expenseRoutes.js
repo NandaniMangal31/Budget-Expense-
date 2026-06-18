@@ -1,6 +1,15 @@
 import express from "express";
 import multer from "multer";
-import { addExpense, getExpenses, scanReceiptAndProcess, deleteAllExpenses, deleteAllReceived } from "../controllers/expenseController.js";
+import {
+  addExpense,
+  getExpenses,
+  getFinancialSummary,
+  getExpenseInsights,
+  scanReceiptAndProcess,
+  scanMultipleReceipts,
+  deleteAllExpenses,
+  deleteAllReceived,
+} from "../controllers/expenseController.js";
 import Expense from "../models/Expense.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
@@ -26,20 +35,29 @@ const upload = multer({
   },
 });
 
-// Upload scanner endpoint — accepts all supported document/image types via multipart or base64 JSON
+const prepareFileForScan = (req, file) => {
+  req.file = file;
+  req.body = req.body || {};
+  req.body.mimeType = file.mimetype;
+  req.body.scannedDocumentName = file.originalname;
+  req.body.imageBuffer = file.buffer.toString("base64");
+  req.body.fileBuffer = file.buffer;
+};
+
+const handleMulterError = (err, res) => {
+  const msg = err?.message || "File upload failed.";
+  return res.status(400).json({ success: false, msg, message: msg });
+};
+
+// Single file scan (backward compatible)
 router.post("/scan", verifyToken, (req, res, next) => {
   upload.single("file")(req, res, (err) => {
-    if (err) {
-      const msg = err.message || "File upload failed.";
-      const status = msg.includes("Unsupported file type") ? 400 : 400;
-      return res.status(status).json({ success: false, msg, message: msg });
-    }
+    if (err) return handleMulterError(err, res);
     next();
   });
 }, async (req, res, next) => {
   try {
-    // Accept multipart uploads or JSON/base64 payloads.
-    if (!req.file && req.body && req.body.imageBuffer) {
+    if (!req.file && req.body?.imageBuffer) {
       const buffer = Buffer.from(req.body.imageBuffer, "base64");
       const fileName =
         req.body.scannedDocumentName ||
@@ -60,30 +78,25 @@ router.post("/scan", verifyToken, (req, res, next) => {
       });
     }
 
-    req.body = req.body || {};
-    req.body.mimeType = req.file.mimetype;
-    req.body.scannedDocumentName = req.file.originalname;
-    req.body.imageBuffer = req.file.buffer.toString("base64");
-    // Define fileBuffer for downstream functions
-    req.body.fileBuffer = req.file.buffer;
-
+    prepareFileForScan(req, req.file);
     return scanReceiptAndProcess(req, res, next);
   } catch (err) {
     console.error("Universal Scanner Architecture Crash:", err);
-    if (err.message?.includes("Unsupported file type")) {
-      return res.status(400).json({ success: false, msg: err.message, message: err.message });
-    }
-    const message =
-      err.message?.includes("Unsupported file type")
-        ? err.message
-        : "Pipeline error resolving file layout rules parameters.";
+    const message = err.message?.includes("Unsupported file type")
+      ? err.message
+      : "Pipeline error resolving file layout rules parameters.";
     return res.status(500).json({ success: false, message, msg: message });
   }
 });
 
-// ==========================================
-// 🛠️ TRADITIONAL CRUD PIPELINES
-// ==========================================
+// Multi-file batch scan
+router.post("/scan/batch", verifyToken, (req, res, next) => {
+  upload.array("files", 10)(req, res, (err) => {
+    if (err) return handleMulterError(err, res);
+    next();
+  });
+}, scanMultipleReceipts);
+
 router.delete("/all", verifyToken, deleteAllExpenses);
 router.delete("/received/all", verifyToken, deleteAllReceived);
 
@@ -106,6 +119,8 @@ router.delete("/:id", verifyToken, async (req, res) => {
   }
 });
 
+router.get("/:userId/summary", verifyToken, getFinancialSummary);
+router.get("/:userId/insights", verifyToken, getExpenseInsights);
 router.get("/:userId", verifyToken, getExpenses);
 router.post("/", verifyToken, addExpense);
 router.post("/add", verifyToken, addExpense);
