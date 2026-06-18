@@ -24,6 +24,7 @@ const app = express();
 const allowedOrigins = [
   "https://smart-spending-frontend.vercel.app",
   "http://localhost:3000",
+  "http://localhost:5173",
 ];
 
 app.use(
@@ -33,7 +34,8 @@ app.use(
       if (!origin) return callback(null, true);
 
       const isAllowedLocalhost = /^http:\/\/localhost:\d+$/.test(origin);
-      if (allowedOrigins.includes(origin) || isAllowedLocalhost) {
+      const isAllowedVercel = /^https:\/\/[\w.-]+\.vercel\.app$/.test(origin);
+      if (allowedOrigins.includes(origin) || isAllowedLocalhost || isAllowedVercel) {
         return callback(null, true);
       }
 

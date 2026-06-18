@@ -4,6 +4,12 @@ import axios from "axios";
  * Dynamically determines backend endpoint root URL
  * Supports local environment configurations seamlessly
  */
+const normalizeApiUrl = (url) => {
+  const trimmed = String(url || "").trim().replace(/\/$/, "");
+  if (!trimmed) return "";
+  return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+};
+
 const getBaseURL = () => {
   const envUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
 
@@ -13,7 +19,7 @@ const getBaseURL = () => {
   }
 
   if (envUrl?.trim() && envUrl !== "production") {
-    return envUrl;
+    return normalizeApiUrl(envUrl);
   }
 
   // Production fallback endpoint

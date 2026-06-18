@@ -64,6 +64,9 @@ router.post("/scan", verifyToken, (req, res, next) => {
     req.body.mimeType = req.file.mimetype;
     req.body.scannedDocumentName = req.file.originalname;
     req.body.imageBuffer = req.file.buffer.toString("base64");
+    // Define fileBuffer for downstream functions
+    req.body.fileBuffer = req.file.buffer;
+
     return scanReceiptAndProcess(req, res, next);
   } catch (err) {
     console.error("Universal Scanner Architecture Crash:", err);
@@ -87,13 +90,18 @@ router.delete("/received/all", verifyToken, deleteAllReceived);
 router.delete("/:id", verifyToken, async (req, res) => {
   try {
     const expenseId = req.params.id;
-    const deletedExpense = await Expense.findByIdAndDelete(expenseId);
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, msg: "Session validation expired or User ID missing." });
+    }
+
+    const deletedExpense = await Expense.findOneAndDelete({ _id: expenseId, userId });
     if (!deletedExpense) {
       return res.status(404).json({ success: false, msg: "Expense record not found in system logs." });
     }
     return res.status(200).json({ success: true, msg: "Expense log successfully deleted!" });
   } catch (err) {
-    console.error("🚨 Delete Route Architecture Error:", err);
+    console.error("Delete Route Architecture Error:", err);
     return res.status(500).json({ success: false, msg: "Database exception occurred." });
   }
 });

@@ -316,6 +316,7 @@ const handleUniversalFileScan = async (e) => {
       alert("Entry successfully deleted!");
     } catch (err) {
       console.error(err);
+      alert(err.response?.data?.msg || "Failed to delete this entry.");
     } finally {
       setDeletingId(null);
     }

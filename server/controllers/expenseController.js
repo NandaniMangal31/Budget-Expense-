@@ -22,7 +22,7 @@ const getGeminiKey = () => {
   }
 
   console.error(
-    "ΓÜá∩╕Å Gemini API Key missing or placeholder. Set a valid GEMINI_API_KEY in .env.",
+    " Gemini API Key missing or placeholder. Set a valid GEMINI_API_KEY in .env.",
   );
   return null;
 };
@@ -52,27 +52,142 @@ const listAvailableModels = async (apiKey) => {
 };
 
 const RECEIVED_KEYWORDS =
-  /\b(received|credited|credit|refund|refunded|reversal|reversed|cashback|salary|income|deposit|money\s+in)\b/i;
+  /\b(received\s+from|received\s+on|received\s+yesterday|received\s+today|money\s+received|payment\s+received|credited\s+to|credited\s+on|credit\s+from|refund(?:ed)?|reversal|reversed|cashback|salary|deposit|money\s+in|upi\s+in)\b/i;
+
+const SENT_KEYWORDS =
+  /\b(sent\s+to|sent\s+on|sent\s+yesterday|sent\s+today|paid\s+to|paid\s+on|paid\s+yesterday|paid\s+today|debited\s+from|debited\s+on|money\s+sent\s+to|payment\s+to)\b/i;
+
+const isSentAnchorLine = (line) =>
+  /^(money\s+sent\s+to|sent|paid|debited|payment\s+to)\b/i.test(String(line || "").trim());
+
+const isReceivedAnchorLine = (line) =>
+  /^(money\s+received|received\s+from|received|credited|refund)\b/i.test(String(line || "").trim());
+
+const isUpiAnchorLine = (line) => isSentAnchorLine(line) || isReceivedAnchorLine(line);
+
+const isFailedTransactionLine = (line) =>
+  /\b(failed|failure|declined|rejected|cancelled|canceled|unsuccessful|could\s+not|unable\s+to)\b/i.test(
+    String(line || ""),
+  ) && !/\b(success|successful|completed)\b/i.test(String(line || ""));
+
+const isFailedTransactionBlock = (blockLines = []) => {
+  const blockText = blockLines.map((l) => String(l || "")).join(" ").toLowerCase();
+  if (/\b(transaction\s+)?failed\b|\bfailed\s+to\b|\bdeclined\b|\brejected\b|\bunsuccessful\b/.test(blockText)) {
+    return true;
+  }
+  if (/\bpending\b/.test(blockText) && !/\b(success|successful|completed|paid|sent|received)\b/.test(blockText)) {
+    return true;
+  }
+  return blockLines.some((line) => isFailedTransactionLine(line));
+};
 
 const isReceivedTransaction = (description, lineText = "") => {
   const text = `${description || ""} ${lineText || ""}`.toLowerCase();
-  return RECEIVED_KEYWORDS.test(text);
+  if (SENT_KEYWORDS.test(text) || isSentAnchorLine(lineText)) return false;
+  if (RECEIVED_KEYWORDS.test(text) || isReceivedAnchorLine(lineText)) return true;
+  if (/\+\s*[₹rs.]?\s*[\d,]+/i.test(lineText)) return true;
+  return false;
 };
 
-const resolveTransactionType = (description, lineText = "") =>
-  isReceivedTransaction(description, lineText) ? "received" : "expense";
+const resolveTransactionType = (description, lineText = "", forcedType = null) => {
+  if (forcedType === "received" || forcedType === "expense") return forcedType;
+  return isReceivedTransaction(description, lineText) ? "received" : "expense";
+};
 
-// ≡ƒº╝ DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
+const isJunkDescription = (description) => {
+  const desc = String(description || "").trim();
+  if (!desc) return true;
+
+  const alpha = desc.replace(/[^a-zA-Z]/g, "");
+  if (alpha.length < 2) return true;
+
+  if (
+    /^(purchase|transaction|item|expense|unknown|misc|general|n\/a|null|undefined|untitled)$/i.test(
+      desc,
+    )
+  ) {
+    return true;
+  }
+
+  if (/^(sent|paid|received|credited|refund|debit|credit)$/i.test(desc)) return true;
+  if (/^\d+([.,]\d+)?$/.test(desc)) return true;
+  if (/^(gstin|invoice|bill no|page \d|total|subtotal|balance)/i.test(desc)) return true;
+  if (/^(am|pm|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)$/i.test(desc)) return true;
+
+  return false;
+};
+
+// DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
 const autoCategorize = (description) => {
   const desc = (description || "").toLowerCase().trim();
-  if (/interest expense|interest/i.test(desc)) return "Other";
-  if (/groceries|grocery|smith\'s|smiths/i.test(desc)) return "Groceries";
-  if (/credit|beginning balance|balance|account balance/i.test(desc)) return "Bills & Utilities";
-  if (/zomato|swiggy|restaurant|hotel|food|cafe|mcdonald|starbucks|blinkit|zepto|instamart|eat|canteen|dinner|lunch|breakfast|bakery|diner|dining|pizza|burger|biryani|dominos|kfc|tea|coffee|snack|meal/i.test(desc)) return "Food & Drinks";
-  if (/uber|ola|rapido|irctc|flight|metro|petrol|fuel|shell|diesel|train|bus|cab|travel|transport|automart|car|bike|garage|auto|parking|toll/i.test(desc)) return "Travel & Transport";
-  if (/amazon|flipkart|myntra|zara|h&m|mall|shopping|clothing|electronics|shoes|apparel|store|walmart|target|mart|market|retail/i.test(desc)) return "Shopping";
-  if (/jio|airtel|electricity|water|gas|broadband|recharge|rent|netflix|spotify|prime|bill|utilities|mobile|wifi|internet/i.test(desc)) return "Bills & Utilities";
-  if (/movie|pvr|inox|gaming|pub|club|bar|concert|theater|booking|cinema|game/i.test(desc)) return "Entertainment";
+  if (!desc) return "Other";
+
+  // Healthcare before travel — "healthcare" falsely matches /\bcar\b/ if boundaries are loose.
+  if (
+    /\b(healthcare|health\s*care|hospital|clinic|pharmacy|chemist|medical|medicine|doctor|dr\.|dental|diagnostic|pathology|apollo|fortis|medplus|pharmeasy|netmeds|1mg|practo|thyrocare)\b/i.test(
+      desc,
+    )
+  ) {
+    return "Healthcare";
+  }
+
+  if (/\binterest expense\b/i.test(desc) || /\binterest\b/i.test(desc)) return "Other";
+  if (/\b(groceries|grocery)\b/i.test(desc) || /smith(?:'s|s)/i.test(desc)) return "Groceries";
+
+  if (/\b(beginning balance|account balance|opening balance)\b/i.test(desc)) {
+    return "Bills & Utilities";
+  }
+  if (/\bbalance\b/i.test(desc) && !/\b(received|credited|refund)\b/i.test(desc)) {
+    return "Bills & Utilities";
+  }
+
+  if (
+    /\b(zomato|swiggy|restaurant|cafe|mcdonald|starbucks|blinkit|zepto|instamart|dominos|kfc|biryani|burger|pizza|eatfit|dunzo)\b/i.test(
+      desc,
+    ) ||
+    /\b(food|dining|dinner|lunch|breakfast|bakery|canteen|snack|meal|tea|coffee)\b/i.test(desc)
+  ) {
+    return "Food & Drinks";
+  }
+
+  if (
+    /\b(uber|ola|rapido|irctc|flight|metro|petrol|fuel|diesel|train|cab|travel|transport|parking|toll|shell|makemytrip|redbus|fastag)\b/i.test(
+      desc,
+    )
+  ) {
+    return "Travel & Transport";
+  }
+  if (/\b(car|bike|garage|auto|bus)\b/i.test(desc)) return "Travel & Transport";
+
+  if (
+    /\b(amazon|flipkart|myntra|zara|walmart|target|shopping|clothing|electronics|shoes|apparel|retail|ajio|meesho)\b/i.test(
+      desc,
+    )
+  ) {
+    return "Shopping";
+  }
+  if (/\b(mall|market|mart|store)\b/i.test(desc) && !/\b(super\s*market|grocery)\b/i.test(desc)) {
+    return "Shopping";
+  }
+
+  if (
+    /\b(jio|airtel|electricity|water|gas|broadband|recharge|rent|netflix|spotify|prime|wifi|internet|mobile|vi\b|bsnl)\b/i.test(
+      desc,
+    ) ||
+    /\b(bill|utilities|utility)\b/i.test(desc)
+  ) {
+    return "Bills & Utilities";
+  }
+
+  if (
+    /\b(movie|pvr|inox|gaming|concert|theater|cinema|bookmyshow|game)\b/i.test(desc) ||
+    /\b(pub|club|bar)\b/i.test(desc)
+  ) {
+    return "Entertainment";
+  }
+
+  if (/\b(insurance|lic|policy premium)\b/i.test(desc)) return "Insurance";
+
   return "Other";
 };
 
@@ -85,8 +200,17 @@ const ALLOWED_CATEGORIES = [
   "Shopping",
   "Bills & Utilities",
   "Entertainment",
+  "Healthcare",
+  "Insurance",
   "Other",
 ];
+
+const resolveCategory = (description, aiCategory = null) => {
+  const autoCat = autoCategorize(description);
+  if (autoCat !== "Other") return autoCat;
+  if (aiCategory && ALLOWED_CATEGORIES.includes(aiCategory)) return aiCategory;
+  return "Other";
+};
 
 // Supported upload types for the universal scanner
 const SUPPORTED_EXTENSIONS = [
@@ -180,32 +304,36 @@ Rules:
 - Read line by line; one row with a price = one transaction.
 - Use only real money amounts (never dates, years, invoice numbers, qty, or phone numbers).
 - Skip subtotal, tax, grand total, balance, and header/footer rows.
-- If description contains received, credited, refund, salary, or income ΓÇö still include the row (it will be classified as income).
+- transactionType = "received" for money IN (received, credited, refund, salary, cashback, income). Otherwise "expense".
+- Hospital/clinic/pharmacy/doctor/lab => Healthcare (never Travel & Transport).
 - amount must be a plain number (no currency symbols).
 
 Return ONLY raw JSON:
-{"transactions":[{"category":"Food & Drinks","description":"Zomato dinner","amount":250.5,"itemCount":1}]}`;
+{"transactions":[{"category":"Food & Drinks","description":"Zomato dinner","amount":250.5,"itemCount":1,"transactionType":"expense"}]}`;
 
-const IMAGE_SCAN_PROMPT = `You are an expert receipt and bill analyzer with vision OCR.
+const IMAGE_SCAN_PROMPT = `You are an expert Indian UPI app (PhonePe, Paytm, GPay) and receipt analyzer.
 
-Study the entire image carefully, then extract expenses line by line.
+Study the image and extract ONLY successful money transactions.
 
-For EACH real purchase line in the image:
-1. description = merchant or item text on that line
-2. amount = the price paid on that line (numeric only)
+For EACH successful transaction block:
+1. description = person name or merchant name from that block
+2. amount = successful payment amount (numeric only)
 3. category = exactly one of: ${ALLOWED_CATEGORIES.map((c) => `"${c}"`).join(", ")}
+4. transactionType:
+   - "expense" when label says: Money sent to, Sent, Paid, Debited, Payment to
+   - "received" when label says: Received from, Received, Credited, Refund, Money received
 
-Critical rules:
-- Read the image top-to-bottom, line by line.
-- NEVER use dates (17/06/2026), times (14:30), years (2024/2025/2026), invoice IDs, GSTIN, or qty as amount.
-- Ignore address, phone, thank-you notes, barcode text.
-- Skip rows named: subtotal, tax, cgst, sgst, total, grand total, balance, change, tip.
-- Include rows with received, credited, refund, salary, or income in the description (money coming in).
-- If one line has item + amount, create one transaction for that line.
-- Choose category from item/merchant meaning (food places => Food & Drinks, fuel/uber => Travel & Transport, etc).
+Critical UPI rules (must follow exactly):
+- The LABEL above/below the name decides type — never guess from the person's name alone.
+- "Money sent to Karnika Gupta" => expense. "Received from Karnika Gupta" => received.
+- "Money sent to Aman Jha" => expense. "Received from Aman Jha" => received.
+- SKIP entire blocks marked Failed, Pending, Declined, Rejected, Cancelled, Unsuccessful.
+- NEVER extract amounts from failed transactions.
+- NEVER use dates, times, years, phone numbers, or UPI IDs as amounts.
+- Ignore UI chrome: Home, History, Offers, Scan, Balance, Spend Analytics.
 
-Return ONLY valid JSON, no markdown:
-{"transactions":[{"category":"Food & Drinks","description":"Chicken biryani","amount":199,"itemCount":1}]}`;
+Return ONLY valid JSON:
+{"transactions":[{"category":"Other","description":"Karnika Gupta","amount":500,"itemCount":1,"transactionType":"received"}]}`;
 
 const selectVisionModels = (availableModels) => {
   const preferredOrder = [
@@ -310,8 +438,14 @@ const runImageOcr = async (buffer) => {
     }
   }
 
+  if (!text || text.trim().length < 10) {
+    console.warn("OCR text too short after retries:", text);
+    return "";
+  }
+
   return text;
 };
+
 
 const extractPdfText = async (buffer) => {
   const parser = new PDFParse({ data: buffer });
@@ -363,6 +497,14 @@ const parseGeminiJsonResponse = (responsePayload) => {
   return null;
 };
 
+const isFormulaOrTotal = (desc) => {
+  const text = String(desc || "").toLowerCase();
+  return (
+    /^=/.test(text) || // Excel formulas
+    /\b(sum|total|subtotal|balance|grand\s+total|average|count|formula|computed)\b/i.test(text)
+  );
+};
+
 const sanitizeAiTransactions = (transactions) => {
   if (!Array.isArray(transactions)) return [];
 
@@ -382,16 +524,21 @@ const sanitizeAiTransactions = (transactions) => {
 
     let description = String(tx.description || "Purchase").trim();
     if (!description) description = "Purchase";
+    if (isJunkDescription(description)) continue;
+    if (isFailedTransactionLine(description)) continue;
+    if (isFormulaOrTotal(description) && !/\b(received|paid|sent|credited|debited|money|upi|transaction)\b/i.test(description)) continue;
 
-    let category = ALLOWED_CATEGORIES.includes(tx.category)
-      ? tx.category
-      : autoCategorize(description);
-    if (category === "Other") {
-      const guess = autoCategorize(description);
-      if (guess !== "Other") category = guess;
-    }
+    const txType =
+      tx.transactionType === "received" || tx.transactionType === "expense"
+        ? tx.transactionType
+        : resolveTransactionType(description);
 
-    const dedupeKey = `${description.toLowerCase()}|${amount}`;
+    let category =
+      txType === "received"
+        ? "Other"
+        : resolveCategory(description, tx.category);
+
+    const dedupeKey = normalizeTransactionKey(description, amount, txType);
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
@@ -400,26 +547,38 @@ const sanitizeAiTransactions = (transactions) => {
       description,
       amount,
       itemCount: 1,
-      transactionType: resolveTransactionType(description),
+      transactionType: txType,
     });
   }
 
   return cleaned;
 };
 
-const mergeTransactionLists = (primary = [], supplemental = []) => {
+const normalizeTransactionKey = (description, amount, txType = "expense") => {
+  const normalizedDesc = String(description || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+  const roundedAmount = Math.round(Number(amount) * 100) / 100;
+  return `${normalizedDesc}|${roundedAmount}|${txType}`;
+};
+
+const dedupeTransactionList = (transactions = []) => {
   const seen = new Set();
-  const merged = [];
-  for (const tx of [...primary, ...supplemental]) {
+  const deduped = [];
+  for (const tx of transactions) {
     if (!tx?.description || !tx?.amount) continue;
     const txType = tx.transactionType || "expense";
-    const key = `${String(tx.description).toLowerCase()}|${tx.amount}|${txType}`;
+    const key = normalizeTransactionKey(tx.description, tx.amount, txType);
     if (seen.has(key)) continue;
     seen.add(key);
-    merged.push(tx);
+    deduped.push(tx);
   }
-  return merged;
+  return deduped;
 };
+
+const mergeTransactionLists = (primary = [], supplemental = []) =>
+  dedupeTransactionList([...primary, ...supplemental]);
 
 const analyzeVisualWithGemini = async (apiKey, imageBuffer, mimeType, prompt) => {
   const genAI = new GoogleGenerativeAI(apiKey);
@@ -704,28 +863,122 @@ const parseUpiAppScreenshotText = (text) => {
     return "Other";
   };
 
-  const pushTransaction = (name, amount, category, lineIndexes = [], sourceLine = "") => {
+  const pushTransaction = (
+    name,
+    amount,
+    category,
+    lineIndexes = [],
+    sourceLine = "",
+    forcedTxType = null,
+  ) => {
     if (!name || !amount || amount < 5) return;
-    if (/^(money sent to|spend analytics|transaction history|total cashback)$/i.test(String(name).trim())) {
+    if (isJunkDescription(name)) return;
+    if (/^(money sent to|money received|received from|spend analytics|transaction history|total cashback|failed|pending)$/i.test(String(name).trim())) {
       return;
     }
-    const dedupeKey = `${name.toLowerCase()}|${amount}`;
+
+    const txType = resolveTransactionType(name, sourceLine, forcedTxType);
+    const finalCategory =
+      txType === "received" ? "Other" : resolveCategory(name, category);
+    const dedupeKey = normalizeTransactionKey(name, amount, txType);
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     lineIndexes.forEach((idx) => usedLineIndexes.add(idx));
 
     transactions.push({
-      category,
+      category: finalCategory,
       description: name,
       amount,
       itemCount: 1,
-      transactionType: resolveTransactionType(name, sourceLine || category),
+      transactionType: txType,
     });
   };
 
-  const moneySentAnchorCount = lines.filter((l) => /^money sent to\b/i.test(l)).length;
-  const isTransactionHistoryLayout =
-    moneySentAnchorCount >= 2 && /transaction history/i.test(text);
+  const resolveAnchorTxType = (anchorLine) => {
+    if (isReceivedAnchorLine(anchorLine)) return "received";
+    if (isSentAnchorLine(anchorLine)) return "expense";
+    return null;
+  };
+
+  const collectAnchorBlock = (startIdx) => {
+    const block = [{ index: startIdx, text: lines[startIdx] }];
+    for (let j = startIdx + 1; j < Math.min(startIdx + 8, lines.length); j++) {
+      if (isUpiAnchorLine(lines[j])) break;
+      if (/^(home|offers|cashback|history|scan|help)$/i.test(lines[j])) break;
+      block.push({ index: j, text: lines[j] });
+    }
+    return block;
+  };
+
+  const parseNameAmountFromBlock = (blockEntries, anchorLine, txType) => {
+    const blockLines = blockEntries.map((entry) => entry.text);
+    if (isFailedTransactionBlock(blockLines)) return null;
+
+    const anchorText = String(anchorLine || "");
+    let name = null;
+    const amountFragments = [];
+
+    const stripAnchorPrefix = (line) =>
+      line
+        .replace(/^money\s+sent\s+to\s*/i, "")
+        .replace(/^money\s+received\s*/i, "")
+        .replace(/^received\s+from\s*/i, "")
+        .replace(/^(sent|paid|received|credited|refund)\b\s*/i, "")
+        .trim();
+
+    const anchorTail = stripAnchorPrefix(anchorText);
+    if (anchorTail && !isOcrNoiseLine(anchorTail)) {
+      const tailDigits = anchorTail.match(/(\d{1,3}(?:,\d{3})+|\d{2,6})/);
+      if (tailDigits && !/[A-Za-z]{3,}/.test(anchorTail)) {
+        amountFragments.push(tailDigits[1]);
+      } else if (/[A-Za-z]{2,}/.test(anchorTail)) {
+        name = cleanPersonName(anchorTail.replace(/\d+.*$/, "").trim());
+      }
+    }
+
+    for (const entry of blockEntries.slice(1)) {
+      const candidate = entry.text;
+      if (isOcrNoiseLine(candidate) || isDateLine(candidate)) continue;
+
+      const hashAmt = candidate.match(/^[#%¥$₹+-]+\s*(\d{1,3}(?:,\d{3})*|\d{2,6})/);
+      if (hashAmt) {
+        amountFragments.push(hashAmt[1]);
+        continue;
+      }
+
+      const inlineDigits = candidate.match(/^[^A-Za-z]*(\d{1,3}(?:,\d{3})+|\d{2,6})[^A-Za-z0-9]*$/);
+      if (inlineDigits) {
+        amountFragments.push(inlineDigits[1]);
+        continue;
+      }
+
+      const nameAmountLine = candidate.match(/^([A-Za-z][A-Za-z\s.'-]{1,50})\s+(\d{2,6})\s*$/);
+      if (nameAmountLine) {
+        name = name || cleanPersonName(nameAmountLine[1]);
+        amountFragments.push(nameAmountLine[2]);
+        continue;
+      }
+
+      const extracted = extractNameAmountFromLine(candidate);
+      if (extracted) {
+        name = name || extracted.name;
+        amountFragments.push(String(extracted.amount));
+        continue;
+      }
+
+      if (/[A-Za-z]{3,}/.test(candidate) && !isFailedTransactionLine(candidate)) {
+        name = name || cleanPersonName(candidate);
+        const trailingDigits = candidate.match(/(\d{2,6})\s*$/);
+        if (trailingDigits) amountFragments.push(trailingDigits[1]);
+      }
+    }
+
+    const contextLine = `${anchorText} ${txType === "received" ? "received credited" : "sent paid"}`;
+    const amount = joinSplitAmountFragments(amountFragments, contextLine);
+    if (!name || !amount) return null;
+
+    return { name, amount };
+  };
 
   const isDateLine = (line) =>
     /^\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line);
@@ -752,78 +1005,59 @@ const parseUpiAppScreenshotText = (text) => {
     return best;
   };
 
-  // Strategy D - PhonePe/GPay Transaction History multi-line blocks.
+  const findNearestAnchorType = (index) => {
+    for (let j = index; j <= Math.min(index + 4, lines.length - 1); j++) {
+      const txType = resolveAnchorTxType(lines[j]);
+      if (txType) return txType;
+    }
+    for (let j = index - 1; j >= Math.max(0, index - 5); j--) {
+      const txType = resolveAnchorTxType(lines[j]);
+      if (txType) return txType;
+    }
+    return "expense";
+  };
+
+  // Primary strategy — anchor-driven blocks (Money sent to / Received from / Sent / Paid / Received).
   for (let i = 0; i < lines.length; i++) {
-    if (!/^money sent to\b/i.test(lines[i])) continue;
-    if (usedLineIndexes.has(i)) continue;
+    if (usedLineIndexes.has(i) || !isUpiAnchorLine(lines[i])) continue;
 
-    let name = null;
-    const usedIndexes = [i];
-    const amountFragments = [];
-    const blockContext = lines[i];
+    const txType = resolveAnchorTxType(lines[i]);
+    if (!txType) continue;
 
-    const anchorTail = lines[i].replace(/^money sent to\s*/i, "").trim();
-    if (anchorTail && !isOcrNoiseLine(anchorTail)) {
-      const tailMatch = anchorTail.match(/(\d{1,3}(?:,\d{3})+|\d{2,6})/);
-      if (tailMatch && !/[A-Za-z]{3,}/.test(anchorTail)) amountFragments.push(tailMatch[1]);
+    const blockEntries = collectAnchorBlock(i);
+    const blockLines = blockEntries.map((entry) => entry.text);
+    if (isFailedTransactionBlock(blockLines)) {
+      blockEntries.forEach((entry) => usedLineIndexes.add(entry.index));
+      continue;
     }
 
-    for (let j = i + 1; j <= Math.min(lines.length - 1, i + 6); j++) {
-      const candidate = lines[j];
-      if (/^money sent to\b|^received from\b/i.test(candidate)) break;
-      if (/^(home|offers|cashback|history)$/i.test(candidate)) break;
-      if (isOcrNoiseLine(candidate)) {
-        usedIndexes.push(j);
-        continue;
-      }
-
-      const hashAmt = candidate.match(/^[#%¥$₹]+\s*(\d{1,3}(?:,\d{3})*|\d{2,6})/);
-      if (hashAmt) {
-        amountFragments.push(hashAmt[1]);
-        usedIndexes.push(j);
-        continue;
-      }
-
-      const inlineDigits = candidate.match(/^[^A-Za-z]*(\d{1,3}(?:,\d{3})+|\d{2,6})[^A-Za-z0-9]*$/);
-      if (inlineDigits) {
-        amountFragments.push(inlineDigits[1]);
-        usedIndexes.push(j);
-        continue;
-      }
-
-      const nameAmountLine = candidate.match(/^([A-Za-z][A-Za-z\s.'-]{1,50})\s+(\d{2,6})\s*$/);
-      if (nameAmountLine) {
-        name = cleanPersonName(nameAmountLine[1]);
-        amountFragments.push(nameAmountLine[2]);
-        usedIndexes.push(j);
-        continue;
-      }
-
-      if (/[A-Za-z]{3,}/.test(candidate) && !isDateLine(candidate)) {
-        name = cleanPersonName(candidate);
-        usedIndexes.push(j);
-        const trailingDigits = candidate.match(/(\d{3,6})\s*$/);
-        if (trailingDigits) amountFragments.push(trailingDigits[1]);
-        continue;
-      }
-
-      if (isDateLine(candidate)) usedIndexes.push(j);
-    }
-
-    const amount = joinSplitAmountFragments(amountFragments, blockContext);
-    if (name && amount) {
-      pushTransaction(name, amount, autoCategorize(name), usedIndexes, blockContext);
+    const parsed = parseNameAmountFromBlock(blockEntries, lines[i], txType);
+    if (parsed) {
+      pushTransaction(
+        parsed.name,
+        parsed.amount,
+        autoCategorize(parsed.name),
+        blockEntries.map((entry) => entry.index),
+        lines[i],
+        txType,
+      );
     }
   }
 
-  if (isTransactionHistoryLayout) {
-    return transactions.length > 0 ? transactions : null;
+  const moneySentAnchorCount = lines.filter((l) => /^money sent to\b/i.test(l)).length;
+  const receivedAnchorCount = lines.filter((l) => /^received\s+from\b/i.test(l)).length;
+  const isTransactionHistoryLayout =
+    (moneySentAnchorCount + receivedAnchorCount) >= 2 && /transaction history/i.test(text);
+
+  if (isTransactionHistoryLayout && transactions.length > 0) {
+    return transactions;
   }
 
-  // Strategy A - anchor on every Sent/Paid row (most reliable for Paytm UI).
+  // Strategy A - Paytm compact UI: "Sent yesterday" / "Paid on" below the name.
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!/^(sent|paid)\b/i.test(line)) continue;
+    if (usedLineIndexes.has(i) || !/^(sent|paid)\b/i.test(line)) continue;
+    if (isFailedTransactionLine(line)) continue;
 
     let name = null;
     let amount = null;
@@ -831,8 +1065,11 @@ const parseUpiAppScreenshotText = (text) => {
 
     for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
       const candidate = lines[j];
-      if (isNoiseLine(candidate) || /^(sent|paid)\b/i.test(candidate)) continue;
+      if (usedLineIndexes.has(j) || isNoiseLine(candidate) || /^(sent|paid|received)\b/i.test(candidate)) {
+        continue;
+      }
       if (/money transfer|groceries/i.test(candidate)) continue;
+      if (isFailedTransactionLine(candidate)) break;
 
       const extracted = extractNameAmountFromLine(candidate);
       if (extracted) {
@@ -840,14 +1077,13 @@ const parseUpiAppScreenshotText = (text) => {
         amount = extracted.amount;
         usedIndexes.push(j);
 
-        // Merge previous line when it's a wrapped surname (no amount on that line).
         if (j - 1 >= 0) {
           const prev = lines[j - 1];
           if (
             !usedLineIndexes.has(j - 1) &&
             /^[A-Za-z]/.test(prev) &&
             !extractNameAmountFromLine(prev) &&
-            !/^(sent|paid)\b/i.test(prev) &&
+            !/^(sent|paid|received)\b/i.test(prev) &&
             !/money transfer|groceries/i.test(prev)
           ) {
             name = `${cleanPersonName(prev)} ${name}`.replace(/\s{2,}/g, " ").trim();
@@ -859,53 +1095,64 @@ const parseUpiAppScreenshotText = (text) => {
     }
 
     if (name && amount) {
-      pushTransaction(name, amount, findCategoryNear(i), usedIndexes, line);
+      pushTransaction(name, amount, findCategoryNear(i), usedIndexes, line, "expense");
     }
   }
 
-  // Strategy A2 ΓÇö Received / Credited / Refund rows (money in).
+  // Strategy A2 - Paytm compact UI: "Received yesterday" / "Received on" below the name.
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    if (!/^(received|credited|refund)/i.test(line) && !isReceivedTransaction(line)) continue;
-    if (usedLineIndexes.has(i)) continue;
+    if (usedLineIndexes.has(i) || !/^received\b/i.test(line)) continue;
+    if (isFailedTransactionLine(line)) continue;
 
     let name = null;
     let amount = null;
     const usedIndexes = [i];
 
-    const inline = extractNameAmountFromLine(line);
-    if (inline) {
-      name = inline.name || line;
-      amount = inline.amount;
-    } else {
-      for (let j = i + 1; j <= Math.min(lines.length - 1, i + 3); j++) {
-        const extracted = extractNameAmountFromLine(lines[j]);
-        if (extracted?.amount) {
-          name = extracted.name || line;
-          amount = extracted.amount;
-          usedIndexes.push(j);
-          break;
-        }
+    for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
+      const candidate = lines[j];
+      if (usedLineIndexes.has(j) || isNoiseLine(candidate)) continue;
+      if (/^(sent|paid|received)\b/i.test(candidate)) continue;
+      if (isFailedTransactionLine(candidate)) break;
+
+      const extracted = extractNameAmountFromLine(candidate);
+      if (extracted) {
+        name = extracted.name;
+        amount = extracted.amount;
+        usedIndexes.push(j);
+        break;
       }
-      if (!amount) {
-        const extracted = extractAmountFromLine(line);
-        if (extracted) {
-          name = cleanLineDescription(line, extracted.amountToken) || line;
-          amount = extracted.amount;
+
+      if (/^[A-Za-z][A-Za-z\s.'-]{2,}$/.test(candidate)) {
+        name = cleanPersonName(candidate);
+        usedIndexes.push(j);
+        for (let k = j + 1; k <= i; k++) {
+          const amountLine = extractAmountFromLine(lines[k]);
+          if (amountLine) {
+            amount = amountLine.amount;
+            usedIndexes.push(k);
+            break;
+          }
         }
+        if (name && amount) break;
       }
     }
 
     if (name && amount) {
-      pushTransaction(name, amount, "Other", usedIndexes, line);
+      pushTransaction(name, amount, "Other", usedIndexes, line, "received");
     }
   }
 
-  // Strategy B ΓÇö direct inline "Name -345" rows (backup when Sent/Paid OCR is missing).
+  // Strategy B — backup rows only when anchored by nearby Sent/Paid/Received labels.
   for (let i = 0; i < lines.length; i++) {
-    if (usedLineIndexes.has(i) || isNoiseLine(lines[i]) || /^(sent|paid)\b/i.test(lines[i])) {
+    if (usedLineIndexes.has(i) || isNoiseLine(lines[i]) || isUpiAnchorLine(lines[i])) {
       continue;
     }
+    if (isFailedTransactionLine(lines[i])) continue;
+
+    const nearbyType = findNearestAnchorType(i);
+    const nearbyBlock = lines.slice(Math.max(0, i - 2), Math.min(lines.length, i + 4));
+    if (isFailedTransactionBlock(nearbyBlock)) continue;
 
     const extracted = extractNameAmountFromLine(lines[i]);
     if (!extracted) continue;
@@ -915,7 +1162,7 @@ const parseUpiAppScreenshotText = (text) => {
       const next = lines[i + 1];
       if (
         !usedLineIndexes.has(i + 1) &&
-        !/^(sent|paid)\b/i.test(next) &&
+        !isUpiAnchorLine(next) &&
         !/money transfer|groceries/i.test(next) &&
         !extractNameAmountFromLine(next) &&
         /^[A-Za-z]/.test(next) &&
@@ -925,10 +1172,17 @@ const parseUpiAppScreenshotText = (text) => {
       }
     }
 
-    pushTransaction(name, extracted.amount, findCategoryNear(i), [i], lines[i]);
+    pushTransaction(
+      name,
+      extracted.amount,
+      findCategoryNear(i),
+      [i],
+      lines[i],
+      nearbyType,
+    );
   }
 
-  // Strategy C ΓÇö anchor on category tags (Money Transfer / Groceries) and look upward.
+  // Strategy C — category tags with nearest anchor type.
   for (let i = 0; i < lines.length; i++) {
     if (!/money transfer|groceries/i.test(lines[i])) continue;
 
@@ -972,7 +1226,8 @@ const parseUpiAppScreenshotText = (text) => {
     }
 
     if (name && amount) {
-      pushTransaction(name, amount, category, [i], lines[i]);
+      const nearbyType = findNearestAnchorType(i);
+      pushTransaction(name, amount, category, [i], lines[i], nearbyType);
     }
   }
 
@@ -986,7 +1241,7 @@ const parseUpiAppScreenshotText = (text) => {
 const parseTransactionsFromRawText = (text) => {
   const upiTransactions = parseUpiAppScreenshotText(text);
   if (upiTransactions?.length) {
-    console.log(`≡ƒô▒ UPI app screenshot parser extracted ${upiTransactions.length} transactions.`);
+    console.log(` UPI app screenshot parser extracted ${upiTransactions.length} transactions.`);
     return upiTransactions;
   }
 
@@ -1005,18 +1260,23 @@ const parseTransactionsFromRawText = (text) => {
 
     const extracted = extractAmountFromLine(line);
     if (!extracted) continue;
+    if (isFailedTransactionLine(line)) continue;
+
+    const nearbyLines = lines.slice(Math.max(0, lines.indexOf(rawLine) - 2), lines.indexOf(rawLine) + 3);
+    if (isFailedTransactionBlock(nearbyLines.map((l) => l.trim()).filter(Boolean))) continue;
 
     const { amountToken, amount } = extracted;
     let description = cleanLineDescription(line, amountToken);
+    if (isJunkDescription(description)) continue;
 
     const lowerDesc = description.toLowerCase();
     const isReceivedLine = isReceivedTransaction(description, line);
     if (
       !isReceivedLine &&
-      (/^(total|subtotal|tax|balance|amount|date|description|item|qty|quantity|payment|paid)$/i.test(
+      (/^(total|subtotal|tax|balance|amount|date|description|item|qty|quantity|payment|paid|failed|pending)$/i.test(
         lowerDesc,
       ) ||
-      /subtotal|grand total|total expense|total income|total spent|page \d|statement period|opening balance|invoice no|bill no|gstin|thank you|sent yesterday|sent on|paid on|money transfer|from \d|payment history|your accounts|upi lite|canara bank/i.test(
+      /subtotal|grand total|total expense|total income|total spent|page \d|statement period|opening balance|invoice no|bill no|gstin|thank you|sent yesterday|sent on|paid on|money transfer|from \d|payment history|your accounts|upi lite|canara bank|transaction failed/i.test(
         lowerDesc,
       ) ||
       /^(sent|paid|from|june|paytm)/i.test(lowerDesc))
@@ -1024,16 +1284,17 @@ const parseTransactionsFromRawText = (text) => {
       continue;
     }
 
-    const dedupeKey = `${description.toLowerCase()}|${amount}`;
+    const txType = resolveTransactionType(description, line);
+    const dedupeKey = normalizeTransactionKey(description, amount, txType);
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
     transactions.push({
-      category: autoCategorize(description),
+      category: txType === "received" ? "Other" : resolveCategory(description),
       description,
       amount,
       itemCount: 1,
-      transactionType: resolveTransactionType(description, line),
+      transactionType: txType,
     });
   }
 
@@ -1291,6 +1552,7 @@ export const scanReceiptAndProcess = async (req, res) => {
     const safeBody = req.body || {};
     let imageBuffer = safeBody.imageBuffer || null;
     let mimeType = safeBody.mimeType || null;
+    let fileBuffer = safeBody.fileBuffer || null;
     const userId = req.user?._id || safeBody.userId;
 
     let finalBuffer;
@@ -1300,6 +1562,8 @@ export const scanReceiptAndProcess = async (req, res) => {
       imageBuffer = req.file.buffer.toString("base64");
     } else if (imageBuffer) {
       finalBuffer = Buffer.from(imageBuffer, "base64");
+    } else if (fileBuffer) {
+      finalBuffer = fileBuffer;
     }
 
     if (!finalBuffer || !mimeType) {
@@ -1364,16 +1628,29 @@ export const scanReceiptAndProcess = async (req, res) => {
 
         const aiTransactions = visionResult.transactions || [];
         const ocrTransactions = parseTransactionsFromRawText(ocrText) || [];
-        const combined = mergeTransactionLists(aiTransactions, ocrTransactions);
-
-        if (combined.length > 0) {
-          extractedPayload = { transactions: combined };
-          usedLocalOcr = ocrTransactions.length > 0;
-          console.log(
-            `Image scan merged ${aiTransactions.length} AI + ${ocrTransactions.length} OCR -> ${combined.length} transactions.`,
+        const isUpiScreenshot =
+          /paytm|phonepe|gpay|google pay|money sent to|received from|transaction history|upi lite|payment history/i.test(
+            ocrText,
           );
-        } else if (visionResult.error) {
-          lastError = visionResult.error;
+
+        if (isUpiScreenshot && ocrTransactions.length > 0) {
+          extractedPayload = { transactions: ocrTransactions };
+          usedLocalOcr = true;
+          console.log(
+            `UPI screenshot detected: anchor parser extracted ${ocrTransactions.length} transactions (AI merge skipped).`,
+          );
+        } else {
+          const combined = mergeTransactionLists(aiTransactions, ocrTransactions);
+
+          if (combined.length > 0) {
+            extractedPayload = { transactions: combined };
+            usedLocalOcr = ocrTransactions.length > 0;
+            console.log(
+              `Image scan merged ${aiTransactions.length} AI + ${ocrTransactions.length} OCR -> ${combined.length} transactions.`,
+            );
+          } else if (visionResult.error) {
+            lastError = visionResult.error;
+          }
         }
       } catch (imageScanErr) {
         console.warn("Image AI/OCR scan failed:", imageScanErr.message);
@@ -1401,15 +1678,17 @@ export const scanReceiptAndProcess = async (req, res) => {
       }
     }
 
-    // ≡ƒôä Scanned PDFs (no extractable text): AI vision OCR.
+    // Scanned PDFs (no extractable text): AI vision OCR.
     if (!extractedPayload && isPdfFile && !isDocumentFile && activeApiKey) {
-      console.log("≡ƒñû AI vision analyzing scanned PDF...");
+      console.log("AI vision analyzing scanned PDF...");
+      const pdfBase64 = finalBuffer.toString("base64");
       const pdfVisionResult = await analyzeVisualWithGemini(
         activeApiKey,
-        imageBuffer,
+        pdfBase64,
         mimeType,
         IMAGE_SCAN_PROMPT,
       );
+
       if (pdfVisionResult.transactions.length > 0) {
         extractedPayload = { transactions: pdfVisionResult.transactions };
       } else {
@@ -1496,32 +1775,29 @@ export const scanReceiptAndProcess = async (req, res) => {
       });
     }
 
-    // ≡ƒÆ╛ DB PLACEMENT LOOPS
+    // DB PLACEMENT LOOPS
+    const uniqueTransactions = dedupeTransactionList(extractedPayload.transactions);
     const savedExpenses = [];
     const savedReceived = [];
-    for (const transaction of extractedPayload.transactions) {
+    for (const transaction of uniqueTransactions) {
       try {
         let rawAmount = String(transaction.amount).replace(/[^0-9.]/g, "");
         const finalAmount = Number(rawAmount);
         if (!finalAmount || isNaN(finalAmount)) continue;
 
-        const allowedCategories = ALLOWED_CATEGORIES;
-        let cat = allowedCategories.includes(transaction.category) ? transaction.category : autoCategorize(transaction.description);
-
-        // If the model shrugged and said "Other", give the regex engine a second opinion
-        if (cat === "Other") {
-          const guess = autoCategorize(transaction.description);
-          if (guess !== "Other") cat = guess;
-        }
-
         const txType =
           transaction.transactionType || resolveTransactionType(transaction.description);
 
+        const category =
+          txType === "received"
+            ? "Other"
+            : resolveCategory(transaction.description, transaction.category);
+
         const automatedExpense = new Expense({
           userId,
-          description: transaction.description || `${cat} Transaction`,
+          description: transaction.description || `${category} Transaction`,
           amount: finalAmount,
-          category: cat,
+          category,
           date: new Date(),
           transactionType: txType,
         });
