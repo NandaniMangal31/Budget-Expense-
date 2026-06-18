@@ -1,10 +1,10 @@
-import axios from "axios";
+﻿import axios from "axios";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import mongoose from "mongoose";
-import ExcelJS from "exceljs"; // 📊 Native Spreadsheet Decoder Engine
+import ExcelJS from "exceljs"; // ≡ƒôè Native Spreadsheet Decoder Engine
 import XLSX from "xlsx";
 import { Readable } from "stream"; // feeds CSV buffers into ExcelJS's csv reader
-import mammoth from "mammoth"; // 📝 Native Word Document (.docx) Decoder Engine
+import mammoth from "mammoth"; // ≡ƒô¥ Native Word Document (.docx) Decoder Engine
 import Tesseract from "tesseract.js";
 import sharp from "sharp";
 import { PDFParse } from "pdf-parse";
@@ -12,7 +12,7 @@ import { pdf as pdfToImages } from "pdf-to-img";
 import Expense from "../models/Expense.js";
 import { checkBudgetThresholds } from "../utils/budgetAlertEngine.js";
 
-// 🧱 SECURE KEY RESOLUTION LAYER
+// ≡ƒº▒ SECURE KEY RESOLUTION LAYER
 const getGeminiKey = () => {
   if (
     process.env.GEMINI_API_KEY &&
@@ -22,7 +22,7 @@ const getGeminiKey = () => {
   }
 
   console.error(
-    "⚠️ Gemini API Key missing or placeholder. Set a valid GEMINI_API_KEY in .env.",
+    "ΓÜá∩╕Å Gemini API Key missing or placeholder. Set a valid GEMINI_API_KEY in .env.",
   );
   return null;
 };
@@ -62,7 +62,7 @@ const isReceivedTransaction = (description, lineText = "") => {
 const resolveTransactionType = (description, lineText = "") =>
   isReceivedTransaction(description, lineText) ? "received" : "expense";
 
-// 🧼 DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
+// ≡ƒº╝ DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
 const autoCategorize = (description) => {
   const desc = (description || "").toLowerCase().trim();
   if (/interest expense|interest/i.test(desc)) return "Other";
@@ -167,9 +167,9 @@ const successMessageForScan = (fileKind, usedLocalOcr) => {
   };
   const label = labels[fileKind] || "Document";
   if (usedLocalOcr) {
-    return `${label} processed with local OCR (AI quota unavailable). 🎉`;
+    return `${label} processed with local OCR (AI quota unavailable). ≡ƒÄë`;
   }
-  return `${label} scanned and categorized successfully! 🎉`;
+  return `${label} scanned and categorized successfully! ≡ƒÄë`;
 };
 
 const DOCUMENT_SCAN_PROMPT = `Analyze this expense document and extract every individual purchase/transaction line.
@@ -180,7 +180,7 @@ Rules:
 - Read line by line; one row with a price = one transaction.
 - Use only real money amounts (never dates, years, invoice numbers, qty, or phone numbers).
 - Skip subtotal, tax, grand total, balance, and header/footer rows.
-- If description contains received, credited, refund, salary, or income — still include the row (it will be classified as income).
+- If description contains received, credited, refund, salary, or income ΓÇö still include the row (it will be classified as income).
 - amount must be a plain number (no currency symbols).
 
 Return ONLY raw JSON:
@@ -407,6 +407,20 @@ const sanitizeAiTransactions = (transactions) => {
   return cleaned;
 };
 
+const mergeTransactionLists = (primary = [], supplemental = []) => {
+  const seen = new Set();
+  const merged = [];
+  for (const tx of [...primary, ...supplemental]) {
+    if (!tx?.description || !tx?.amount) continue;
+    const txType = tx.transactionType || "expense";
+    const key = `${String(tx.description).toLowerCase()}|${tx.amount}|${txType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(tx);
+  }
+  return merged;
+};
+
 const analyzeVisualWithGemini = async (apiKey, imageBuffer, mimeType, prompt) => {
   const genAI = new GoogleGenerativeAI(apiKey);
   const availableModels = await listAvailableModels(apiKey);
@@ -432,7 +446,7 @@ const analyzeVisualWithGemini = async (apiKey, imageBuffer, mimeType, prompt) =>
       const parsed = parseGeminiJsonResponse(responsePayload);
       const transactions = sanitizeAiTransactions(parsed?.transactions);
       if (transactions.length > 0) {
-        console.log(`🤖 Vision AI parsed ${transactions.length} transactions via ${modelName}.`);
+        console.log(`≡ƒñû Vision AI parsed ${transactions.length} transactions via ${modelName}.`);
         return { transactions, error: null };
       }
     } catch (err) {
@@ -493,7 +507,7 @@ const isLikelyExpenseAmount = (token, line) => {
   if (!amount || isNaN(amount) || amount <= 0) return false;
 
   const hasDecimals = /\.\d{1,2}$/.test(normalized);
-  const hasCurrency = /[₹$]|(?:\brs\.?\b)|(?:\binr\b)/i.test(line);
+  const hasCurrency = /[Γé╣$]|(?:\brs\.?\b)|(?:\binr\b)/i.test(line);
 
   // Time components from "05:35 PM", "07:54 PM", etc.
   if (/\d{1,2}\s*:\s*\d{2}/.test(line)) {
@@ -511,12 +525,12 @@ const isLikelyExpenseAmount = (token, line) => {
     return false;
   }
 
-  // On date-heavy lines, small integers are usually day/month/qty — not amounts.
+  // On date-heavy lines, small integers are usually day/month/qty ΓÇö not amounts.
   if (!hasDecimals && amount <= 31 && /\d{1,2}[\/\-\.]\d{1,2}/.test(line)) {
     return false;
   }
 
-  // Prefer realistic expense values: currency marker, decimals, or >= ₹10.
+  // Prefer realistic expense values: currency marker, decimals, or >= Γé╣10.
   if (hasCurrency || hasDecimals || amount >= 10) return true;
 
   // Tiny whole numbers without context are usually OCR noise.
@@ -528,7 +542,7 @@ const scoreAmountCandidate = (token, amount, index, lineLength, line) => {
   const normalized = token.replace(/,/g, "");
 
   if (/\.\d{2}$/.test(normalized)) score += 12;
-  if (/[₹$]|(?:\brs\.?\b)|(?:\binr\b)/i.test(line)) score += 8;
+  if (/[Γé╣$]|(?:\brs\.?\b)|(?:\binr\b)/i.test(line)) score += 8;
   if (amount >= 10 && amount <= 500000) score += 6;
   if (index >= lineLength * 0.45) score += 4; // amounts usually appear on the right
   if (amount < 5) score -= 8;
@@ -538,7 +552,7 @@ const scoreAmountCandidate = (token, amount, index, lineLength, line) => {
 
 const extractAmountFromLine = (line) => {
   const currencyMatch = line.match(
-    /(?:₹|rs\.?|inr|\$)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
+    /(?:Γé╣|rs\.?|inr|\$)\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?|\d+(?:\.\d{2})?)/i,
   );
   if (currencyMatch) {
     const token = currencyMatch[1];
@@ -577,7 +591,7 @@ const cleanLineDescription = (line, amountToken) => {
     .replace(/\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/g, " ")
     .replace(/\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2}/g, " ")
     .replace(/\d{1,2}:\d{2}(:\d{2})?/g, " ")
-    .replace(/[₹$,;|]+/g, " ")
+    .replace(/[Γé╣$,;|]+/g, " ")
     .replace(/\b(rs\.?|inr)\b/gi, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -586,12 +600,13 @@ const cleanLineDescription = (line, amountToken) => {
   return description || "Purchase";
 };
 
-// 📱 Paytm / PhonePe / GPay screenshot parser — handles multi-line UPI history rows.
+// ≡ƒô▒ Paytm / PhonePe / GPay screenshot parser ΓÇö handles multi-line UPI history rows.
 const parseUpiAppScreenshotText = (text) => {
-  const upiSignalCount = (text.match(/sent\s+(yesterday|on\b)|paid\s+on\b|money transfer/gi) || [])
-    .length;
+  const upiSignalCount =
+    (text.match(/sent\s+(yesterday|on\b)|paid\s+on\b|received\s+on\b|money transfer|money sent to|received from|payment to|debited from|credited to/gi) || [])
+      .length;
   const isUpiApp =
-    /paytm|phonepe|gpay|google pay|upi lite|payment history|money transfer|balance\s*&\s*history/i.test(
+    /paytm|phonepe|gpay|google pay|upi lite|payment history|money transfer|balance\s*&\s*history|transaction history|spend analytics/i.test(
       text,
     ) || upiSignalCount >= 2;
 
@@ -606,13 +621,18 @@ const parseUpiAppScreenshotText = (text) => {
   const seen = new Set();
   const usedLineIndexes = new Set();
 
-  const parseUpiOcrAmount = (digits) => {
-    const d = String(digits).replace(/\D/g, "");
+  const parseUpiOcrAmount = (digits, line = "") => {
+    const d = String(digits).replace(/,/g, "").replace(/\D/g, "");
     if (!d) return null;
 
     let amount = Number(d);
-    // OCR often misreads ₹ as a leading digit: -₹45 → "-345", -₹50 → "-350"
-    if (d.length === 3 && amount >= 100 && amount <= 999) {
+    const isExpenseCtx = /-|sent\b|paid\b|debited|payment\s+to|money\s+sent\s+to/i.test(line);
+    const isReceivedCtx = /\+|received|credited|money\s+received/i.test(line);
+
+    if (d.length === 4 && /^[23]/.test(d) && (isExpenseCtx || isReceivedCtx)) {
+      const stripped = Number(d.slice(1));
+      if (stripped >= 10 && stripped <= 50000) amount = stripped;
+    } else if (d.length === 3 && d.startsWith("3")) {
       const lastTwo = Number(d.slice(-2));
       if (lastTwo >= 1 && lastTwo <= 500) amount = lastTwo;
     }
@@ -635,7 +655,7 @@ const parseUpiAppScreenshotText = (text) => {
     String(raw || "")
       .replace(/^[^A-Za-z]+/i, "")
       .replace(/^[a-z]{1,2}\s+(?=[A-Z])/i, "")
-      .replace(/[@&£€$#%+]+/g, " ")
+      .replace(/[@&┬úΓé¼$#%+]+/g, " ")
       .replace(/\s{2,}/g, " ")
       .trim();
 
@@ -643,7 +663,7 @@ const parseUpiAppScreenshotText = (text) => {
     /^(balance|history|your accounts|payment history|canara|upi lite|ac no|deck|paytm|total spent)/i.test(
       line,
     ) ||
-    /^from\s+[\d&@£]+$/i.test(line) ||
+    /^from\s+[\d&@┬ú]+$/i.test(line) ||
     /^june\s+\d{4}/i.test(line) ||
     /^[\d:]+\s*[%~]/.test(line);
 
@@ -652,7 +672,7 @@ const parseUpiAppScreenshotText = (text) => {
 
     const patterns = [
       /^(.+?)\s*-+\s*[^0-9A-Za-z]*(\d{2,4})\s*$/,
-      /^(.+?)\s*[₹¥rs%]+\s*(\d{2,4})\s*$/i,
+      /^(.+?)\s*[Γé╣┬Ñrs%]+\s*(\d{2,4})\s*$/i,
       /^(.+?)\s+(\d{2,3})\s*$/,
     ];
 
@@ -661,7 +681,7 @@ const parseUpiAppScreenshotText = (text) => {
       if (!match) continue;
 
       const name = cleanPersonName(match[1]);
-      const amount = parseUpiOcrAmount(match[2]);
+      const amount = parseUpiOcrAmount(match[2], line);
       if (name && name.length >= 2 && amount) {
         return { name, amount };
       }
@@ -685,7 +705,10 @@ const parseUpiAppScreenshotText = (text) => {
   };
 
   const pushTransaction = (name, amount, category, lineIndexes = [], sourceLine = "") => {
-    if (!name || !amount) return;
+    if (!name || !amount || amount < 5) return;
+    if (/^(money sent to|spend analytics|transaction history|total cashback)$/i.test(String(name).trim())) {
+      return;
+    }
     const dedupeKey = `${name.toLowerCase()}|${amount}`;
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
@@ -700,7 +723,104 @@ const parseUpiAppScreenshotText = (text) => {
     });
   };
 
-  // Strategy A — anchor on every Sent/Paid row (most reliable for Paytm UI).
+  const moneySentAnchorCount = lines.filter((l) => /^money sent to\b/i.test(l)).length;
+  const isTransactionHistoryLayout =
+    moneySentAnchorCount >= 2 && /transaction history/i.test(text);
+
+  const isDateLine = (line) =>
+    /^\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b/i.test(line);
+
+  const isOcrNoiseLine = (line) => {
+    const compact = String(line || "").replace(/\s+/g, "");
+    return compact.length <= 2;
+  };
+
+  const joinSplitAmountFragments = (fragments, contextLine = "money sent to") => {
+    const nums = fragments.map((f) => String(f).replace(/,/g, "")).filter(Boolean);
+    if (!nums.length) return null;
+    if (nums.length === 1) return parseUpiOcrAmount(nums[0], contextLine);
+
+    const last = nums[nums.length - 1];
+    if (last === "000" && nums.length >= 2) {
+      const combined = Number(`${nums[0]}${last}`);
+      if (combined >= 1000 && combined <= 500000) return combined;
+    }
+
+    const best =
+      parseUpiOcrAmount(nums[nums.length - 1], contextLine) ??
+      parseUpiOcrAmount(nums[0], contextLine);
+    return best;
+  };
+
+  // Strategy D - PhonePe/GPay Transaction History multi-line blocks.
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^money sent to\b/i.test(lines[i])) continue;
+    if (usedLineIndexes.has(i)) continue;
+
+    let name = null;
+    const usedIndexes = [i];
+    const amountFragments = [];
+    const blockContext = lines[i];
+
+    const anchorTail = lines[i].replace(/^money sent to\s*/i, "").trim();
+    if (anchorTail && !isOcrNoiseLine(anchorTail)) {
+      const tailMatch = anchorTail.match(/(\d{1,3}(?:,\d{3})+|\d{2,6})/);
+      if (tailMatch && !/[A-Za-z]{3,}/.test(anchorTail)) amountFragments.push(tailMatch[1]);
+    }
+
+    for (let j = i + 1; j <= Math.min(lines.length - 1, i + 6); j++) {
+      const candidate = lines[j];
+      if (/^money sent to\b|^received from\b/i.test(candidate)) break;
+      if (/^(home|offers|cashback|history)$/i.test(candidate)) break;
+      if (isOcrNoiseLine(candidate)) {
+        usedIndexes.push(j);
+        continue;
+      }
+
+      const hashAmt = candidate.match(/^[#%¥$₹]+\s*(\d{1,3}(?:,\d{3})*|\d{2,6})/);
+      if (hashAmt) {
+        amountFragments.push(hashAmt[1]);
+        usedIndexes.push(j);
+        continue;
+      }
+
+      const inlineDigits = candidate.match(/^[^A-Za-z]*(\d{1,3}(?:,\d{3})+|\d{2,6})[^A-Za-z0-9]*$/);
+      if (inlineDigits) {
+        amountFragments.push(inlineDigits[1]);
+        usedIndexes.push(j);
+        continue;
+      }
+
+      const nameAmountLine = candidate.match(/^([A-Za-z][A-Za-z\s.'-]{1,50})\s+(\d{2,6})\s*$/);
+      if (nameAmountLine) {
+        name = cleanPersonName(nameAmountLine[1]);
+        amountFragments.push(nameAmountLine[2]);
+        usedIndexes.push(j);
+        continue;
+      }
+
+      if (/[A-Za-z]{3,}/.test(candidate) && !isDateLine(candidate)) {
+        name = cleanPersonName(candidate);
+        usedIndexes.push(j);
+        const trailingDigits = candidate.match(/(\d{3,6})\s*$/);
+        if (trailingDigits) amountFragments.push(trailingDigits[1]);
+        continue;
+      }
+
+      if (isDateLine(candidate)) usedIndexes.push(j);
+    }
+
+    const amount = joinSplitAmountFragments(amountFragments, blockContext);
+    if (name && amount) {
+      pushTransaction(name, amount, autoCategorize(name), usedIndexes, blockContext);
+    }
+  }
+
+  if (isTransactionHistoryLayout) {
+    return transactions.length > 0 ? transactions : null;
+  }
+
+  // Strategy A - anchor on every Sent/Paid row (most reliable for Paytm UI).
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!/^(sent|paid)\b/i.test(line)) continue;
@@ -743,7 +863,7 @@ const parseUpiAppScreenshotText = (text) => {
     }
   }
 
-  // Strategy A2 — Received / Credited / Refund rows (money in).
+  // Strategy A2 ΓÇö Received / Credited / Refund rows (money in).
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!/^(received|credited|refund)/i.test(line) && !isReceivedTransaction(line)) continue;
@@ -781,7 +901,7 @@ const parseUpiAppScreenshotText = (text) => {
     }
   }
 
-  // Strategy B — direct inline "Name -345" rows (backup when Sent/Paid OCR is missing).
+  // Strategy B ΓÇö direct inline "Name -345" rows (backup when Sent/Paid OCR is missing).
   for (let i = 0; i < lines.length; i++) {
     if (usedLineIndexes.has(i) || isNoiseLine(lines[i]) || /^(sent|paid)\b/i.test(lines[i])) {
       continue;
@@ -808,7 +928,7 @@ const parseUpiAppScreenshotText = (text) => {
     pushTransaction(name, extracted.amount, findCategoryNear(i), [i], lines[i]);
   }
 
-  // Strategy C — anchor on category tags (Money Transfer / Groceries) and look upward.
+  // Strategy C ΓÇö anchor on category tags (Money Transfer / Groceries) and look upward.
   for (let i = 0; i < lines.length; i++) {
     if (!/money transfer|groceries/i.test(lines[i])) continue;
 
@@ -845,7 +965,7 @@ const parseUpiAppScreenshotText = (text) => {
         const digitMatch = lines[j].match(/(\d{2,4})\s*$/);
         if (digitMatch) {
           name = cleanPersonName(lines[j].replace(/\d{2,4}\s*$/, ""));
-          amount = parseUpiOcrAmount(digitMatch[1]);
+          amount = parseUpiOcrAmount(digitMatch[1], lines[j]);
           if (name && amount) break;
         }
       }
@@ -859,14 +979,14 @@ const parseUpiAppScreenshotText = (text) => {
   return transactions.length > 0 ? transactions : null;
 };
 
-// 🧮 LOCAL FALLBACK — scan extracted text line-by-line and build transactions.
+// ≡ƒº« LOCAL FALLBACK ΓÇö scan extracted text line-by-line and build transactions.
 // Used when Gemini is unavailable / rate-limited / returns nothing usable, so
 // docx, txt, xlsx, xls, and csv uploads keep working with proper categorization
 // even without the AI step.
 const parseTransactionsFromRawText = (text) => {
   const upiTransactions = parseUpiAppScreenshotText(text);
   if (upiTransactions?.length) {
-    console.log(`📱 UPI app screenshot parser extracted ${upiTransactions.length} transactions.`);
+    console.log(`≡ƒô▒ UPI app screenshot parser extracted ${upiTransactions.length} transactions.`);
     return upiTransactions;
   }
 
@@ -920,7 +1040,7 @@ const parseTransactionsFromRawText = (text) => {
   return transactions;
 };
 
-// 📂 Extract readable text from a non-image/non-pdf document buffer.
+// ≡ƒôé Extract readable text from a non-image/non-pdf document buffer.
 // Returns { text, isDocumentFile }. Spreadsheets, docx, txt/rtf are all
 // converted to plain text here; images/PDFs fall through untouched and
 // get sent to Gemini as binary (inlineData) instead.
@@ -946,8 +1066,8 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
   if (isSpreadsheet) {
     const isCsvFile = mimeType.includes("csv") || isCsv;
 
-    // STRATEGY A — real, modern OOXML .xlsx (and many files saved with a
-    // .xls extension that are actually xlsx under the hood — common from
+    // STRATEGY A ΓÇö real, modern OOXML .xlsx (and many files saved with a
+    // .xls extension that are actually xlsx under the hood ΓÇö common from
     // newer Excel/Sheets exports). Skip this for genuine .csv files since
     // xlsx.load() always throws on plain delimited text and just wastes time.
     if (!isCsvFile) {
@@ -965,7 +1085,7 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
           });
         });
         if (text.trim()) {
-          console.log("📊 ExcelJS: Parsed as native XLSX workbook.");
+          console.log("≡ƒôè ExcelJS: Parsed as native XLSX workbook.");
           return { text, isDocumentFile: true };
         }
       } catch (xlsxErr) {
@@ -973,7 +1093,7 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
       }
     }
 
-    // STRATEGY B — true CSV / tab-delimited text, via ExcelJS's own csv
+    // STRATEGY B ΓÇö true CSV / tab-delimited text, via ExcelJS's own csv
     // reader (it needs a stream, so we wrap the buffer in a Readable).
     try {
       const workbook = new ExcelJS.Workbook();
@@ -985,14 +1105,14 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
         text += rowValues.join(", ") + "\n";
       });
       if (text.trim().length > 15) {
-        console.log("📊 ExcelJS: Parsed as CSV stream.");
+        console.log("≡ƒôè ExcelJS: Parsed as CSV stream.");
         return { text, isDocumentFile: true };
       }
     } catch (csvErr) {
       console.warn("ExcelJS csv.read failed, trying HTML/raw-text fallback:", csvErr.message);
     }
 
-    // STRATEGY C — many bank/web-app "xls" exports are actually HTML tables
+    // STRATEGY C ΓÇö many bank/web-app "xls" exports are actually HTML tables
     // wearing an .xls extension. Strip markup so the rows read as plain text.
     const rawString = finalBuffer.toString("utf-8");
     if (/<table/i.test(rawString) || /<html/i.test(rawString)) {
@@ -1001,12 +1121,12 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
         .replace(/<[^>]+>/g, " ")
         .replace(/&nbsp;/gi, " ")
         .replace(/[ \t]{2,}/g, " ");
-      console.log("📊 Detected HTML-formatted spreadsheet export, stripped markup.");
+      console.log("≡ƒôè Detected HTML-formatted spreadsheet export, stripped markup.");
       return { text, isDocumentFile: true };
     }
 
-    // STRATEGY D — last resort, raw decode. Note: genuine legacy binary
-    // .xls (Excel 97-2003 BIFF format) cannot be reliably read this way —
+    // STRATEGY D ΓÇö last resort, raw decode. Note: genuine legacy binary
+    // .xls (Excel 97-2003 BIFF format) cannot be reliably read this way ΓÇö
     // ExcelJS doesn't support that format at all, so this will only recover
     // something usable if the file is actually CSV/HTML/plain text in
     // disguise, not a true binary .xls.
@@ -1015,7 +1135,7 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
       return { text, isDocumentFile: true };
     }
 
-    // STRATEGY E — parse with SheetJS to support true legacy .xls and edge files.
+    // STRATEGY E ΓÇö parse with SheetJS to support true legacy .xls and edge files.
     try {
       const workbook = XLSX.read(finalBuffer, {
         type: "buffer",
@@ -1036,7 +1156,7 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
       }
 
       if (sheetText.trim().length > 15) {
-        console.log("📊 Parsed spreadsheet with SheetJS fallback.");
+        console.log("≡ƒôè Parsed spreadsheet with SheetJS fallback.");
         return { text: sheetText, isDocumentFile: true };
       }
     } catch (sheetErr) {
@@ -1050,7 +1170,7 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
     if (isDocx) {
       try {
         const result = await mammoth.extractRawText({ buffer: finalBuffer });
-        console.log("📝 Mammoth: Extracted text from Word (.docx).");
+        console.log("≡ƒô¥ Mammoth: Extracted text from Word (.docx).");
         return { text: result.value, isDocumentFile: true, fileKind: "word" };
       } catch (err) {
         console.warn("Mammoth .docx extraction failed:", err.message);
@@ -1060,19 +1180,19 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
     const text = finalBuffer
       .toString(isDocx ? "utf-8" : "latin1")
       .replace(/[^\x20-\x7E\n\r\t]/g, " ");
-    console.log(`📝 Extracted text from Word (${isDocx ? ".docx" : ".doc"}) fallback.`);
+    console.log(`≡ƒô¥ Extracted text from Word (${isDocx ? ".docx" : ".doc"}) fallback.`);
     return { text, isDocumentFile: true, fileKind: "word" };
   }
 
   if (isRtf) {
     const text = cleanRTFToText(finalBuffer.toString("utf-8"));
-    console.log("📄 RTF document cleaned to plain text.");
+    console.log("≡ƒôä RTF document cleaned to plain text.");
     return { text, isDocumentFile: true, fileKind: "rtf" };
   }
 
   if (isTxt) {
     const text = finalBuffer.toString("utf-8");
-    console.log("📄 Plain text file loaded.");
+    console.log("≡ƒôä Plain text file loaded.");
     return { text, isDocumentFile: true, fileKind: "text" };
   }
 
@@ -1081,7 +1201,7 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
     try {
       const pdfText = await extractPdfText(finalBuffer);
       if (pdfText) {
-        console.log("📄 PDF text extracted via pdf-parse.");
+        console.log("≡ƒôä PDF text extracted via pdf-parse.");
         return { text: pdfText, isDocumentFile: true, fileKind: "pdf" };
       }
     } catch (err) {
@@ -1090,11 +1210,11 @@ const extractDocumentText = async (finalBuffer, mimeType, fileName) => {
     return { text: "", isDocumentFile: false, fileKind: "pdf", isScannedPdf: true };
   }
 
-  // Images — OCR / vision path in scanReceiptAndProcess.
+  // Images ΓÇö OCR / vision path in scanReceiptAndProcess.
   return { text: "", isDocumentFile: false, fileKind: "image" };
 };
 
-// 1. ➕ ADD MANUAL EXPENSE
+// 1. Γ₧ò ADD MANUAL EXPENSE
 export const addExpense = async (req, res) => {
   try {
     const userId = req.user?._id || req.body.userId;
@@ -1108,7 +1228,7 @@ export const addExpense = async (req, res) => {
   }
 };
 
-// 2. 🔍 GET EXPENSES
+// 2. ≡ƒöì GET EXPENSES
 export const getExpenses = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1120,7 +1240,7 @@ export const getExpenses = async (req, res) => {
   }
 };
 
-// 2b. 🗑️ DELETE ALL EXPENSE LOGS (keeps received/credit entries)
+// 2b. ≡ƒùæ∩╕Å DELETE ALL EXPENSE LOGS (keeps received/credit entries)
 export const deleteAllExpenses = async (req, res) => {
   try {
     const userId = req.user?._id;
@@ -1143,7 +1263,29 @@ export const deleteAllExpenses = async (req, res) => {
   }
 };
 
-// 3. 📸 AI SCAN RECEIPT & PROCESS
+export const deleteAllReceived = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ success: false, msg: "Session validation expired or User ID missing." });
+    }
+
+    const result = await Expense.deleteMany({
+      userId,
+      transactionType: "received",
+    });
+
+    return res.status(200).json({
+      success: true,
+      msg: `Deleted ${result.deletedCount} received transaction(s).`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, msg: "Failed to delete received transactions.", error: err.message });
+  }
+};
+
+// 3. ≡ƒô╕ AI SCAN RECEIPT & PROCESS
 export const scanReceiptAndProcess = async (req, res) => {
   try {
     const safeBody = req.body || {};
@@ -1180,7 +1322,7 @@ export const scanReceiptAndProcess = async (req, res) => {
     mimeType = fileMeta.mimeType;
     const activeApiKey = getGeminiKey();
 
-    console.log(`📂 Universal scan started: ${fileName} [${fileMeta.fileKind}]`);
+    console.log(`≡ƒôé Universal scan started: ${fileName} [${fileMeta.fileKind}]`);
 
     const { text: extractedTextContent, isDocumentFile } = await extractDocumentText(
       finalBuffer,
@@ -1207,28 +1349,43 @@ export const scanReceiptAndProcess = async (req, res) => {
     let extractedPayload = null;
     let lastError = null;
     let usedLocalOcr = false;
+    let imageOcrAlreadyRan = false;
 
-    // 📸 Images: AI vision first (line-by-line smart analysis).
-    if (isImageFile && activeApiKey) {
-      console.log("🤖 AI vision analyzing image line-by-line...");
-      const visionResult = await analyzeVisualWithGemini(
-        activeApiKey,
-        imageBuffer,
-        mimeType,
-        IMAGE_SCAN_PROMPT,
-      );
-      if (visionResult.transactions.length > 0) {
-        extractedPayload = { transactions: visionResult.transactions };
-      } else {
-        lastError = visionResult.error;
+    // Images: run AI vision + local OCR in parallel, merge results.
+    if (isImageFile) {
+      try {
+        const ocrPromise = runImageOcr(finalBuffer);
+        const visionPromise = activeApiKey
+          ? analyzeVisualWithGemini(activeApiKey, imageBuffer, mimeType, IMAGE_SCAN_PROMPT)
+          : Promise.resolve({ transactions: [], error: null });
+
+        const [ocrText, visionResult] = await Promise.all([ocrPromise, visionPromise]);
+        imageOcrAlreadyRan = true;
+
+        const aiTransactions = visionResult.transactions || [];
+        const ocrTransactions = parseTransactionsFromRawText(ocrText) || [];
+        const combined = mergeTransactionLists(aiTransactions, ocrTransactions);
+
+        if (combined.length > 0) {
+          extractedPayload = { transactions: combined };
+          usedLocalOcr = ocrTransactions.length > 0;
+          console.log(
+            `Image scan merged ${aiTransactions.length} AI + ${ocrTransactions.length} OCR -> ${combined.length} transactions.`,
+          );
+        } else if (visionResult.error) {
+          lastError = visionResult.error;
+        }
+      } catch (imageScanErr) {
+        console.warn("Image AI/OCR scan failed:", imageScanErr.message);
+        lastError = imageScanErr;
       }
     }
 
-    // 📄 Text documents: local parser first, AI text analysis second.
+    // Text documents: local parser first, AI text analysis second.
     if (!extractedPayload && isDocumentFile && trimmedTextContent.trim()) {
       const localTransactions = parseTransactionsFromRawText(trimmedTextContent);
       if (localTransactions.length > 0) {
-        console.log("🧮 Parsed document with local line-scan engine.");
+        console.log("≡ƒº« Parsed document with local line-scan engine.");
         extractedPayload = { transactions: localTransactions };
       } else if (activeApiKey) {
         const textAiResult = await analyzeTextWithGemini(
@@ -1244,9 +1401,9 @@ export const scanReceiptAndProcess = async (req, res) => {
       }
     }
 
-    // 📄 Scanned PDFs (no extractable text): AI vision OCR.
+    // ≡ƒôä Scanned PDFs (no extractable text): AI vision OCR.
     if (!extractedPayload && isPdfFile && !isDocumentFile && activeApiKey) {
-      console.log("🤖 AI vision analyzing scanned PDF...");
+      console.log("≡ƒñû AI vision analyzing scanned PDF...");
       const pdfVisionResult = await analyzeVisualWithGemini(
         activeApiKey,
         imageBuffer,
@@ -1273,7 +1430,7 @@ export const scanReceiptAndProcess = async (req, res) => {
     ) {
       const localTransactions = parseTransactionsFromRawText(trimmedTextContent);
       if (localTransactions.length > 0) {
-        console.log("🧮 Falling back to local line-scan categorization engine.");
+        console.log("≡ƒº« Falling back to local line-scan categorization engine.");
         extractedPayload = { transactions: localTransactions };
       }
     }
@@ -1285,13 +1442,13 @@ export const scanReceiptAndProcess = async (req, res) => {
       !isDocumentFile
     ) {
       try {
-        console.log("📄 Running local OCR on scanned PDF pages...");
+        console.log("≡ƒôä Running local OCR on scanned PDF pages...");
         const pdfOcrText = await ocrScannedPdf(finalBuffer);
         const pdfOcrTransactions = parseTransactionsFromRawText(pdfOcrText);
         if (pdfOcrTransactions.length > 0) {
           extractedPayload = { transactions: pdfOcrTransactions };
           usedLocalOcr = true;
-          console.log(`📄 Scanned PDF OCR extracted ${pdfOcrTransactions.length} transactions.`);
+          console.log(`≡ƒôä Scanned PDF OCR extracted ${pdfOcrTransactions.length} transactions.`);
         }
       } catch (pdfOcrErr) {
         console.warn("Scanned PDF OCR fallback failed:", pdfOcrErr.message);
@@ -1299,19 +1456,20 @@ export const scanReceiptAndProcess = async (req, res) => {
       }
     }
 
-    // Image OCR fallback only when AI vision is unavailable or failed.
+    // Image OCR fallback only when parallel scan above did not run or found nothing.
     if (
       (!extractedPayload || !Array.isArray(extractedPayload.transactions) || extractedPayload.transactions.length === 0) &&
-      isImageFile
+      isImageFile &&
+      !imageOcrAlreadyRan
     ) {
       try {
-        console.log("📷 Running local OCR fallback on image...");
+        console.log("≡ƒô╖ Running local OCR fallback on image...");
         const ocrText = await runImageOcr(finalBuffer);
         const ocrTransactions = parseTransactionsFromRawText(ocrText);
         if (ocrTransactions.length > 0) {
           extractedPayload = { transactions: ocrTransactions };
           usedLocalOcr = true;
-          console.log(`📷 Local OCR extracted ${ocrTransactions.length} transactions.`);
+          console.log(`≡ƒô╖ Local OCR extracted ${ocrTransactions.length} transactions.`);
         }
       } catch (ocrErr) {
         console.warn("Image OCR fallback failed:", ocrErr.message);
@@ -1338,7 +1496,7 @@ export const scanReceiptAndProcess = async (req, res) => {
       });
     }
 
-    // 💾 DB PLACEMENT LOOPS
+    // ≡ƒÆ╛ DB PLACEMENT LOOPS
     const savedExpenses = [];
     const savedReceived = [];
     for (const transaction of extractedPayload.transactions) {
@@ -1387,7 +1545,7 @@ export const scanReceiptAndProcess = async (req, res) => {
       return res.status(400).json({ msg: "No valid expense parameters could be parsed from this document asset." });
     }
 
-    // 📊 RECALCULATE MONTHLY PROGRESS BUDGET METRICS (expenses only)
+    // ≡ƒôè RECALCULATE MONTHLY PROGRESS BUDGET METRICS (expenses only)
     const monthlyBudgetCap = 10000;
     const objectId = new mongoose.Types.ObjectId(userId);
     const rawAggregatedSums = await Expense.aggregate([
@@ -1405,9 +1563,9 @@ export const scanReceiptAndProcess = async (req, res) => {
 
     let systemAlertNotification = null;
     if (consumptionRatioPercent >= 100) {
-      systemAlertNotification = `🛑 Alert! Your budget limit is 100% used (Spent: ₹${finalAccumulatedTotal}). Stop spending!`;
+      systemAlertNotification = `≡ƒ¢æ Alert! Your budget limit is 100% used (Spent: Γé╣${finalAccumulatedTotal}). Stop spending!`;
     } else if (consumptionRatioPercent >= 80) {
-      systemAlertNotification = `⚠️ Warning! You have consumed 80% of your budget allowance threshold.`;
+      systemAlertNotification = `ΓÜá∩╕Å Warning! You have consumed 80% of your budget allowance threshold.`;
     }
 
     return res.status(200).json({

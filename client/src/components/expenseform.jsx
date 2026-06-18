@@ -98,10 +98,16 @@ export default function ExpenseForm({ refresh }) {
               className="w-full px-3.5 py-2.5 text-sm border border-slate-300 rounded-md text-slate-900 bg-white outline-none cursor-pointer box-border"
             >
               <option value="Food & Drinks">🍔 Food & Drinks</option>
+              <option value="Groceries">🛒 Groceries</option>
               <option value="Travel & Transport">🚌 Travel & Transport</option>
               <option value="Shopping">🛍️ Shopping</option>
               <option value="Bills & Utilities">🧾 Bills & Utilities</option>
               <option value="Entertainment">🎬 Entertainment</option>
+              <option value="Healthcare">🏥 Healthcare</option>
+              <option value="Insurance">🛡️ Insurance</option>
+              <option value="Investment">📈 Investment</option>
+              <option value="Cash Withdrawal">🏧 Cash Withdrawal</option>
+              <option value="Transfer">💸 Transfer</option>
               <option value="Other">📦 Other</option>
             </select>
           </div>

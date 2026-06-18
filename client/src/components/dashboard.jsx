@@ -37,6 +37,7 @@ export default function Dashboard() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
+  const [isDeletingAllReceived, setIsDeletingAllReceived] = useState(false);
 
   const [targetInputs, setTargetInputs] = useState({
     totalBudget: "",
@@ -342,6 +343,28 @@ const handleUniversalFileScan = async (e) => {
     }
   };
 
+  const handleDeleteAllReceived = async () => {
+    if (
+      !window.confirm(
+        "Delete ALL received logs? Expense entries will be kept.",
+      )
+    )
+      return;
+    try {
+      setIsDeletingAllReceived(true);
+      await API.delete("/expenses/received/all");
+      setExpenses((prev) =>
+        prev.filter((item) => item.transactionType !== "received"),
+      );
+      alert("All received logs deleted!");
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete all received logs.");
+    } finally {
+      setIsDeletingAllReceived(false);
+    }
+  };
+
   // ==========================================
   // 📊 OPTIMIZED MEMOIZED CALCULATIONS
   // ==========================================
@@ -430,6 +453,42 @@ const handleUniversalFileScan = async (e) => {
         dot: "bg-teal-700",
         text: "text-teal-800",
         bg: "bg-teal-50 border-teal-100",
+      };
+    if (normalized.includes("healthcare") || normalized.includes("health"))
+      return {
+        dot: "bg-rose-500",
+        text: "text-rose-700",
+        bg: "bg-rose-50 border-rose-100",
+      };
+    if (normalized.includes("insurance"))
+      return {
+        dot: "bg-indigo-500",
+        text: "text-indigo-700",
+        bg: "bg-indigo-50 border-indigo-100",
+      };
+    if (normalized.includes("investment"))
+      return {
+        dot: "bg-violet-500",
+        text: "text-violet-700",
+        bg: "bg-violet-50 border-violet-100",
+      };
+    if (normalized.includes("cash withdrawal") || normalized.includes("atm"))
+      return {
+        dot: "bg-stone-500",
+        text: "text-stone-700",
+        bg: "bg-stone-50 border-stone-100",
+      };
+    if (normalized.includes("transfer"))
+      return {
+        dot: "bg-sky-500",
+        text: "text-sky-700",
+        bg: "bg-sky-50 border-sky-100",
+      };
+    if (normalized.includes("groceries") || normalized.includes("grocery"))
+      return {
+        dot: "bg-lime-600",
+        text: "text-lime-800",
+        bg: "bg-lime-50 border-lime-100",
       };
     if (normalized.includes("other"))
       return {
@@ -578,6 +637,8 @@ const handleUniversalFileScan = async (e) => {
               formatAdvancedAmount={formatAdvancedAmount}
               onDeleteExpense={handleDeleteExpense}
               deletingId={deletingId}
+              onDeleteAll={handleDeleteAllReceived}
+              isDeletingAll={isDeletingAllReceived}
             />
           </div>
         </div>

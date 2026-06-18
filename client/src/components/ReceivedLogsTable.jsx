@@ -3,6 +3,8 @@ export default function ReceivedLogsTable({
   formatAdvancedAmount,
   onDeleteExpense,
   deletingId,
+  onDeleteAll,
+  isDeletingAll,
 }) {
   return (
     <div className="bg-white rounded-2xl border border-emerald-200 shadow-xs flex flex-col h-[320px] w-full overflow-hidden box-border">
@@ -14,9 +16,21 @@ export default function ReceivedLogsTable({
               Credited, refund & income entries
             </p>
           </div>
-          <span className="bg-emerald-100 text-emerald-700 font-bold text-[10px] px-2 py-1 rounded-md shrink-0">
-            {displayReceived?.length || 0} Logs
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {displayReceived?.length > 0 && onDeleteAll && (
+              <button
+                type="button"
+                onClick={onDeleteAll}
+                disabled={isDeletingAll}
+                className="text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 px-2.5 py-1 rounded-md cursor-pointer transition-colors disabled:opacity-50"
+              >
+                {isDeletingAll ? "Deleting..." : "Delete All"}
+              </button>
+            )}
+            <span className="bg-emerald-100 text-emerald-700 font-bold text-[10px] px-2 py-1 rounded-md shrink-0">
+              {displayReceived?.length || 0} Logs
+            </span>
+          </div>
         </div>
       </div>
 

@@ -22,7 +22,20 @@ const expenseSchema = new mongoose.Schema({
     default: "Other",
     trim: true,
     // Restricts collection records to match frontend strings exactly
-    enum: ["Groceries", "Food & Drinks", "Travel & Transport", "Shopping", "Bills & Utilities", "Entertainment", "Other"]
+    enum: [
+      "Groceries",
+      "Food & Drinks",
+      "Travel & Transport",
+      "Shopping",
+      "Bills & Utilities",
+      "Entertainment",
+      "Healthcare",
+      "Insurance",
+      "Investment",
+      "Cash Withdrawal",
+      "Transfer",
+      "Other",
+    ],
   },
   
   // 📝 Text Fields

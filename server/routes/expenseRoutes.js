@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { addExpense, getExpenses, scanReceiptAndProcess, deleteAllExpenses } from "../controllers/expenseController.js";
+import { addExpense, getExpenses, scanReceiptAndProcess, deleteAllExpenses, deleteAllReceived } from "../controllers/expenseController.js";
 import Expense from "../models/Expense.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
@@ -82,6 +82,7 @@ router.post("/scan", verifyToken, (req, res, next) => {
 // 🛠️ TRADITIONAL CRUD PIPELINES
 // ==========================================
 router.delete("/all", verifyToken, deleteAllExpenses);
+router.delete("/received/all", verifyToken, deleteAllReceived);
 
 router.delete("/:id", verifyToken, async (req, res) => {
   try {

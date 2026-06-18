@@ -24,7 +24,8 @@ export default function CategoryAnalysis({ expenses, categoryTotals, totalExpens
                     <span className="truncate">{category}</span>
                   </span>
                   <span className={`font-bold shrink-0 ${isBreached ? "text-red-600" : "text-slate-900"}`}>
-                    {formatAdvancedAmount(amount)} / {specificTargetNum > 0 ? formatAdvancedAmount(matchingBudgetCard) : "No Cap"}
+                    {formatAdvancedAmount(amount)} ({percentage}%)
+                    {specificTargetNum > 0 ? ` / ${formatAdvancedAmount(matchingBudgetCard)}` : " / No Cap"}
                   </span>
                 </div>
                 
