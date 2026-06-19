@@ -20,8 +20,9 @@ import {
   INCOME_KEYWORDS,
 } from "../utils/transactionValidation.js";
 import { buildFinancialSummary, generateLocalInsights } from "../utils/financialInsights.js";
+import { categorizeByMerchant } from "../utils/merchantCategoryEngine.js";
 
-// ≡ƒº▒ SECURE KEY RESOLUTION LAYER
+// SECURE KEY RESOLUTION LAYER
 const getGeminiKey = () => {
   if (
     process.env.GEMINI_API_KEY &&
@@ -137,10 +138,18 @@ const isJunkDescription = (description) => {
 const isValidTransactionName = (name) => !isJunkDescription(name);
 
 // DYNAMIC CATEGORIZATION ENGINE UTILITY HELPER
+// ✅ NOW USES COMPREHENSIVE MERCHANT DATABASE
 const autoCategorize = (description) => {
   const desc = (description || "").toLowerCase().trim();
   if (!desc) return "Other";
 
+  // ✅ TRY MERCHANT DATABASE FIRST (higher accuracy)
+  const merchantCategory = categorizeByMerchant(description);
+  if (merchantCategory !== "Other") {
+    return merchantCategory;
+  }
+
+  // ✅ FALLBACK TO LEGACY PATTERNS (for edge cases)
   // Healthcare before travel — "healthcare" falsely matches /\bcar\b/ if boundaries are loose.
   if (
     /\b(healthcare|health\s*care|hospital|clinic|pharmacy|chemist|medical|medicine|doctor|dr\.|dental|diagnostic|pathology|apollo|fortis|medplus|pharmeasy|netmeds|1mg|practo|thyrocare)\b/i.test(
@@ -526,24 +535,90 @@ const sanitizeAiTransactions = (transactions) => {
 
   const seen = new Set();
   const cleaned = [];
+  const rejectionLog = [];
+
+  // ✅ OCR DEBUGGING: Log raw extracted transactions
+  console.log(`\n📊 OCR SANITIZATION REPORT`);
+  console.log(`Total extracted transactions: ${transactions.length}`);
 
   for (const tx of transactions) {
     if (!tx) continue;
 
     const rawAmount = String(tx.amount ?? "").replace(/[^0-9.]/g, "");
     const amount = Number(rawAmount);
-    if (!amount || isNaN(amount) || amount <= 0) continue;
+    
+    // ✅ REJECTION: Invalid amount
+    if (!amount || isNaN(amount) || amount <= 0) {
+      rejectionLog.push({
+        type: "INVALID_AMOUNT",
+        reason: `Amount: ${rawAmount || "empty"}`,
+        transaction: tx
+      });
+      continue;
+    }
 
-    // Reject year/date-like false positives from AI output.
-    if (Number.isInteger(amount) && amount >= 1900 && amount <= 2100) continue;
-    if (amount <= 31 && !/\./.test(rawAmount) && !tx.description) continue;
+    // ✅ REJECTION: Year/date false positives
+    if (Number.isInteger(amount) && amount >= 1900 && amount <= 2100) {
+      rejectionLog.push({
+        type: "YEAR_DETECTED",
+        reason: `Likely year: ${amount}`,
+        transaction: tx
+      });
+      continue;
+    }
+
+    // ✅ REJECTION: Small numbers without description
+    if (amount <= 31 && !/\./.test(rawAmount) && !tx.description) {
+      rejectionLog.push({
+        type: "SMALL_NO_DESC",
+        reason: `Amount ${amount} with no description`,
+        transaction: tx
+      });
+      continue;
+    }
 
     let description = String(tx.description || "Purchase").trim();
     if (!description) description = "Purchase";
-    if (isJunkDescription(description)) continue;
-    if (isFailedTransactionLine(description)) continue;
-    if (/\bfailed\b/i.test(String(tx.description || "") + String(tx.category || ""))) continue;
-    if (isFormulaOrTotal(description) && !/\b(received|paid|sent|credited|debited|money|upi|transaction)\b/i.test(description)) continue;
+    
+    // ✅ REJECTION: Junk description
+    if (isJunkDescription(description)) {
+      rejectionLog.push({
+        type: "JUNK_DESCRIPTION",
+        reason: `Junk: "${description}"`,
+        transaction: tx
+      });
+      continue;
+    }
+    
+    // ✅ REJECTION: Failed transaction - CRITICAL
+    if (isFailedTransactionLine(description)) {
+      rejectionLog.push({
+        type: "FAILED_TRANSACTION",
+        reason: `Failed keyword found in: "${description}"`,
+        transaction: tx
+      });
+      continue;
+    }
+
+    // ✅ REJECTION: Failed in combined fields
+    if (/\bfailed\b/i.test(String(tx.description || "") + String(tx.category || ""))) {
+      rejectionLog.push({
+        type: "FAILED_IN_FIELDS",
+        reason: `Failed keyword in description or category`,
+        transaction: tx
+      });
+      continue;
+    }
+
+    // ✅ REJECTION: Formula or total
+    if (isFormulaOrTotal(description) && !/\b(received|paid|sent|credited|debited|money|upi|transaction)\b/i.test(description)) {
+      rejectionLog.push({
+        type: "FORMULA_OR_TOTAL",
+        reason: `Formula/total detected: "${description}"`,
+        transaction: tx
+      });
+      continue;
+    }
 
     const txType =
       tx.transactionType === "received" || tx.transactionType === "expense"
@@ -556,7 +631,17 @@ const sanitizeAiTransactions = (transactions) => {
         : resolveCategory(description, tx.category);
 
     const dedupeKey = normalizeTransactionKey(description, amount, txType);
-    if (seen.has(dedupeKey)) continue;
+    
+    // ✅ REJECTION: Duplicate
+    if (seen.has(dedupeKey)) {
+      rejectionLog.push({
+        type: "DUPLICATE",
+        reason: `Duplicate key: ${dedupeKey}`,
+        transaction: tx
+      });
+      continue;
+    }
+    
     seen.add(dedupeKey);
 
     cleaned.push({
@@ -566,7 +651,20 @@ const sanitizeAiTransactions = (transactions) => {
       itemCount: 1,
       transactionType: txType,
     });
+
+    // ✅ LOG: Accepted transaction
+    console.log(`✅ ACCEPTED: ${txType.toUpperCase()} | ${category} | ${description} | ₹${amount}`);
   }
+
+  // ✅ OCR DEBUGGING: Log rejected transactions
+  if (rejectionLog.length > 0) {
+    console.log(`\n❌ REJECTED TRANSACTIONS (${rejectionLog.length}):`);
+    for (const rejection of rejectionLog) {
+      console.log(`   [${rejection.type}] ${rejection.reason}`);
+    }
+  }
+
+  console.log(`\n✅ FINAL: ${cleaned.length} valid transactions from ${transactions.length} extracted\n`);
 
   return cleaned;
 };
@@ -1468,15 +1566,22 @@ const parseUpiAppScreenshotText = (text) => {
 // docx, txt, xlsx, xls, and csv uploads keep working with proper categorization
 // even without the AI step.
 const parseTransactionsFromRawText = (text) => {
+  // ✅ OCR DEBUGGING: Log raw OCR text (first 500 chars for brevity)
+  const textPreview = (text || "").slice(0, 500).replace(/\n/g, "\\n");
+  console.log(`📄 RAW OCR TEXT (first 500 chars): ${textPreview}...`);
+
   const upiTransactions = parseUpiAppScreenshotText(text);
   if (upiTransactions?.length) {
-    console.log(` UPI app screenshot parser extracted ${upiTransactions.length} transactions.`);
+    console.log(`✅ UPI app screenshot parser extracted ${upiTransactions.length} transactions.`);
     return upiTransactions;
   }
 
   const lines = text.split(/\r?\n/);
   const transactions = [];
   const seen = new Set();
+  const rejectedLines = [];
+
+  console.log(`📊 LINE-BY-LINE PARSING: Processing ${lines.length} lines`);
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -1489,17 +1594,32 @@ const parseTransactionsFromRawText = (text) => {
 
     const extracted = extractAmountFromLine(line);
     if (!extracted) continue;
-    if (isFailedTransactionLine(line)) continue;
+    
+    // ✅ REJECTION: Failed transaction
+    if (isFailedTransactionLine(line)) {
+      rejectedLines.push({ reason: "FAILED_TRANSACTION", line });
+      continue;
+    }
 
     const nearbyLines = lines.slice(Math.max(0, lines.indexOf(rawLine) - 2), lines.indexOf(rawLine) + 3);
-    if (isFailedTransactionBlock(nearbyLines.map((l) => l.trim()).filter(Boolean))) continue;
+    if (isFailedTransactionBlock(nearbyLines.map((l) => l.trim()).filter(Boolean))) {
+      rejectedLines.push({ reason: "FAILED_BLOCK", line });
+      continue;
+    }
 
     const { amountToken, amount } = extracted;
     let description = cleanLineDescription(line, amountToken);
-    if (isJunkDescription(description)) continue;
+    
+    // ✅ REJECTION: Junk description
+    if (isJunkDescription(description)) {
+      rejectedLines.push({ reason: "JUNK_DESC", line });
+      continue;
+    }
 
     const lowerDesc = description.toLowerCase();
     const isReceivedLine = isReceivedTransaction(description, line);
+    
+    // ✅ REJECTION: Non-expense junk
     if (
       !isReceivedLine &&
       (/^(total|subtotal|tax|balance|amount|date|description|item|qty|quantity|payment|paid|failed|pending)$/i.test(
@@ -1510,12 +1630,19 @@ const parseTransactionsFromRawText = (text) => {
       ) ||
       /^(sent|paid|from|june|paytm)/i.test(lowerDesc))
     ) {
+      rejectedLines.push({ reason: "JUNK_KEYWORDS", line });
       continue;
     }
 
     const txType = resolveTransactionType(description, line);
     const dedupeKey = normalizeTransactionKey(description, amount, txType);
-    if (seen.has(dedupeKey)) continue;
+    
+    // ✅ REJECTION: Duplicate
+    if (seen.has(dedupeKey)) {
+      rejectedLines.push({ reason: "DUPLICATE", line });
+      continue;
+    }
+    
     seen.add(dedupeKey);
 
     transactions.push({
@@ -1525,7 +1652,24 @@ const parseTransactionsFromRawText = (text) => {
       itemCount: 1,
       transactionType: txType,
     });
+
+    // ✅ LOG: Extracted transaction
+    console.log(`✅ LINE PARSED: ${txType.toUpperCase()} | ${description} | ₹${amount}`);
   }
+
+  // ✅ OCR DEBUGGING: Summary of rejected lines
+  if (rejectedLines.length > 0) {
+    console.log(`❌ REJECTED LINES: ${rejectedLines.length}`);
+    const rejectCounts = {};
+    for (const reject of rejectedLines) {
+      rejectCounts[reject.reason] = (rejectCounts[reject.reason] || 0) + 1;
+    }
+    for (const [reason, count] of Object.entries(rejectCounts)) {
+      console.log(`   - ${reason}: ${count}`);
+    }
+  }
+
+  console.log(`✅ EXTRACTED: ${transactions.length} transactions from ${lines.length} lines\n`);
 
   return transactions;
 };
